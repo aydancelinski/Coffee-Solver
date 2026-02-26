@@ -153,4 +153,3 @@ if uploaded_file:
         else:
             st.warning("No date column detected.")
 
-st.sidebar.title("Aydan's AI Coffee Pricing Solver")
