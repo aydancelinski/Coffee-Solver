@@ -133,7 +133,7 @@ if uploaded_file:
     tab1, tab2 = st.tabs(["Pricing Recommendations", "Sales Trends"])
 
     with tab1:
-        st.subheader("Frictionless Pricing Strategy")
+        st.subheader("Pricing Strategy")
         def highlight_strategy(row):
             green = 'background-color: #B2D8B2; color: #000000; font-weight: bold' 
             red = 'background-color: #F2B2B2; color: #000000; font-weight: bold'   
