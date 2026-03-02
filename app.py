@@ -73,16 +73,15 @@ st.title("Celinski's Coffee Solver »")
 uploaded_file = st.file_uploader("Upload any POS CSV or Excel file", type=["csv", "xlsx"])
 
 if uploaded_file:
-    # 3. UNIVERSAL DATA REPAIR
-    try:
+    # 3. UNIVERSAL DATA REPAIR (UPDATED)
         if uploaded_file.name.endswith('.csv'):
             raw_text = uploaded_file.getvalue().decode("utf-8-sig", errors="ignore")
             df = pd.read_csv(io.StringIO(raw_text))
         else:
             df = pd.read_excel(uploaded_file)
         
-        if len(df.columns) == 1:
-            df = df.iloc[:, 0].str.split(',', expand=True)
+        # Ensure all column headers are strings to prevent the 'int' error
+        df.columns = [str(c) for c in df.columns]
 
         cols = {c.lower().strip(): c for c in df.columns}
         name_map = {}
@@ -93,12 +92,6 @@ if uploaded_file:
             if any(x in c for x in ['date', 'time', 'day']): name_map[cols[c]] = 'date'
         
         df = df.rename(columns=name_map)
-        df['quantity'] = pd.to_numeric(df['quantity'], errors='coerce').fillna(0)
-        df['price'] = pd.to_numeric(df['price'], errors='coerce').fillna(0)
-        
-    except Exception as e:
-        st.error(f"Error processing data: {e}")
-        st.stop()
 
     # 4. PRICING ENGINE (Frictionless / Value Bucket Logic)
     summary = df.groupby('item').agg({'quantity': 'sum', 'price': 'mean'}).reset_index()
