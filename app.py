@@ -67,7 +67,6 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# FIXED: Replaced "double_arrow_right" text with real symbol
 st.title("Celinski's Coffee Solver »")
 
 # 2. FILE UPLOADER
@@ -152,4 +151,3 @@ if uploaded_file:
             st.line_chart(daily.set_index('date'))
         else:
             st.warning("No date column detected.")
-
