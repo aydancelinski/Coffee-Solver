@@ -4,7 +4,7 @@ import io
 import math
 
 # 1. SETUP & STYLE
-st.set_page_config(page_title="Celinski's Coffee Solver", layout="wide")
+st.set_page_config(page_title="Celinski Coffee Solver", layout="wide")
 
 st.markdown("""
     <style>
