@@ -87,66 +87,72 @@ if uploaded_file:
         
         df.columns = [str(c).lower().strip() for c in df.columns]
         
-        # MAPPING LOGIC: Prioritize Descriptive Names and ensure Date is captured
         name_map = {}
         for c in df.columns:
-            if any(x in c for x in ['detail', 'description']): 
-                name_map[c] = 'item'
+            if any(x in c for x in ['detail', 'description']): name_map[c] = 'item'
             elif 'item' not in name_map.values() and any(x in c for x in ['product', 'item']) and 'id' not in c:
                 name_map[c] = 'item'
-            
             if any(x in c for x in ['qty', 'quantity', 'sold', 'count']): name_map[c] = 'quantity'
             if any(x in c for x in ['price', 'rate', 'unit_price']): name_map[c] = 'price'
             if any(x in c for x in ['date', 'time']): name_map[c] = 'date'
         
         df = df.rename(columns=name_map)
         
-        # Ensure only the necessary columns stay to prevent duplicate/id confusion
-        needed_cols = ['item', 'quantity', 'price', 'date']
-        df = df[[col for col in needed_cols if col in df.columns]]
+        # Keep only the necessary columns
+        cols_to_keep = ['item', 'quantity', 'price', 'date']
+        df = df[[c for c in cols_to_keep if c in df.columns]]
         df = df.loc[:, ~df.columns.duplicated(keep='last')]
         
         if all(col in df.columns for col in ['item', 'quantity', 'price']):
             for col in ['quantity', 'price']:
                 df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
             
-            # 🕒 RESTORED TIME NORMALIZATION
+            # 🕒 TEMPORAL NORMALIZATION
             if 'date' in df.columns:
                 df['date'] = pd.to_datetime(df['date'], errors='coerce')
-                # Filter out null dates if any
                 valid_dates = df['date'].dropna()
                 if not valid_dates.empty:
                     days_span = (valid_dates.max() - valid_dates.min()).days
-                    # Calculate real month count
+                    # Calculate real month count (avg 30.44 days per month)
                     months_in_data = max(1, days_span / 30.44) 
         else:
-            st.error("Missing required columns. Please check your file headers.")
+            st.error("Missing required columns.")
             df = None
     except Exception as e:
         st.error(f"File Error: {e}")
 
-# 5. PRICING ENGINE WITH FORMATTING & ROUNDING
+# 5. PRICING ENGINE WITH SYNCHRONIZED MONTHLY MATH
 if df is not None and 'item' in df.columns:
+    # Get total quantities and average prices
     summary = df.groupby('item').agg({'quantity': 'sum', 'price': 'mean'}).reset_index()
-    # Normalize quantity by the calculated months
+    
+    # CALCULATE MONTHLY UNITS FIRST
     summary['Monthly Units Sold'] = (summary['quantity'] / months_in_data).round(0).astype(int)
     summary.rename(columns={'item': 'Item Name', 'price': 'Current Price'}, inplace=True)
 
     def run_optimization(row):
         curr_p = row['Current Price']
-        units = row['Monthly Units Sold']
+        m_units = row['Monthly Units Sold'] # USE ONLY MONTHLY UNITS HERE
         curr_d = math.floor(curr_p)
-        if units > 35:
+        
+        if m_units > 35:
             suggested = curr_p + 0.50
             new_p = curr_d + 0.99 if math.floor(suggested) > curr_d else suggested
-            return new_p, (new_p - curr_p) * units, "Increase"
-        elif units < 10:
+            # PROFIT GAIN = (Price Change) * MONTHLY Units
+            monthly_gain = (new_p - curr_p) * m_units
+            return new_p, max(0, monthly_gain), "Increase"
+        
+        elif m_units < 10:
             new_p = max(0.99, curr_p - 0.50)
-            extra = units * 0.20
-            gain = max(0, (new_p * (units + extra)) - (curr_p * units))
-            return new_p, gain, "Decrease"
+            extra_m_units = m_units * 0.20 # 20% volume lift
+            # MONTHLY REVENUE GAIN
+            new_m_rev = new_p * (m_units + extra_m_units)
+            curr_m_rev = curr_p * m_units
+            return new_p, max(0, new_m_rev - curr_m_rev), "Decrease"
+            
         return curr_p, 0, "Hold"
 
+    # APPLY THE NORMALIZED MATH
     results = summary.apply(run_optimization, axis=1)
     summary['AI Suggested Price'] = [x[0] for x in results]
     summary['Monthly Impact'] = [round(float(x[1]), 2) for x in results]
@@ -160,7 +166,10 @@ if df is not None and 'item' in df.columns:
         return color
 
     st.subheader(f"Strategy Analysis ({months_in_data:.1f} months normalized)")
-    st.metric("Total Projected Monthly Gain", f"+${summary['Monthly Impact'].sum():,.2f}")
+    
+    # METRIC NOW USES THE SUM OF THE NORMALIZED IMPACTS
+    total_monthly_lift = summary['Monthly Impact'].sum()
+    st.metric("Total Projected Monthly Gain", f"+${total_monthly_lift:,.2f}")
     
     styled_df = summary[['Item Name', 'Monthly Units Sold', 'Current Price', 'AI Suggested Price', 'Proj. Monthly Gain', 'Strategy']].style.applymap(color_strategy, subset=['Strategy'])
     st.dataframe(styled_df, use_container_width=True)
