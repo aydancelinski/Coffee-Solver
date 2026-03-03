@@ -57,7 +57,7 @@ if st.button("Ask Consultant"):
 
 st.divider()
 
-# 4. UNIVERSAL FILE UPLOADER & COLLISION-PROOF MAPPING
+# 4. UNIVERSAL FILE UPLOADER & TARGETED MAPPING
 uploaded_file = st.file_uploader("Upload Coffee POS File (CSV or Excel)", type=["csv", "xlsx"])
 
 df = None
@@ -74,53 +74,55 @@ if uploaded_file:
         
         df.columns = [str(c).lower().strip() for c in df.columns]
         
-        # 🎯 STRICT MAPPING: Prevents the error in your screenshot
+        # 🎯 TARGETED MAPPING: Using the headers from your error message
         name_map = {}
-        found_mapped = set()
         
-        # 1. Date (Find FIRST for math stability)
+        # 1. Date (Priority)
         for c in df.columns:
-            if any(x in c for x in ['date', 'time', 'sale_date', 'transaction_date']):
+            if any(x in c for x in ['date', 'transaction_date', 'sale_date']):
                 temp_date = pd.to_datetime(df[c], errors='coerce')
                 if temp_date.dropna().shape[0] > 0:
-                    df['mapped_date'] = temp_date
-                    found_mapped.add('date')
+                    df['normalized_date'] = temp_date
+                    name_map[c] = 'date_col'
                     break
 
-        # 2. Item Name (Priority: Details/Description, Avoid IDs)
+        # 2. Item Name (Priority: coffee_name)
         for c in df.columns:
-            if 'item' not in found_mapped:
-                if any(x in c for x in ['product', 'item', 'detail', 'description', 'category']):
-                    if 'id' not in c:
-                        name_map[c] = 'item'
-                        found_mapped.add('item')
-                        break
+            if any(x in c for x in ['coffee_name', 'product', 'item', 'detail', 'description']):
+                if 'id' not in c:
+                    name_map[c] = 'item'
+                    break
 
-        # 3. Quantity & Price (Collision Check)
+        # 3. Quantity (Since your data lacks a clear 'Qty' column, we count occurrences or default to 1 per row)
         for c in df.columns:
-            if 'quantity' not in found_mapped and any(x in c for x in ['qty', 'quantity', 'units', 'sold']):
+            if any(x in c for x in ['qty', 'quantity', 'units', 'sold']):
                 name_map[c] = 'quantity'
-                found_mapped.add('quantity')
-            elif 'price' not in found_mapped and any(x in c for x in ['price', 'rate', 'unit']):
+                break
+        
+        # 4. Price (Priority: money)
+        for c in df.columns:
+            if any(x in c for x in ['money', 'price', 'rate', 'unit_price']):
                 name_map[c] = 'price'
-                found_mapped.add('price')
+                break
+        
+        # Fail-safe for Quantity: If no 'Qty' column exists, assume each row is 1 unit sold
+        if 'quantity' not in name_map.values():
+            df['quantity'] = 1
         
         df = df.rename(columns=name_map)
         
-        # Keep only successfully unique mapped columns to avoid "Duplicate Key" errors
-        required = ['item', 'quantity', 'price']
-        if all(col in df.columns for col in required):
-            for col in ['quantity', 'price']:
-                df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+        # Final validation
+        if 'item' in df.columns and 'price' in df.columns:
+            df['price'] = pd.to_numeric(df['price'], errors='coerce').fillna(0)
+            df['quantity'] = pd.to_numeric(df['quantity'], errors='coerce').fillna(1)
             
-            # 🕒 TEMPORAL NORMALIZATION (THE 94K KILLER)
-            if 'date' in found_mapped:
-                valid_dates = df['mapped_date'].dropna()
+            # 🕒 NORMALIZATION
+            if 'normalized_date' in df.columns:
+                valid_dates = df['normalized_date'].dropna()
                 days_span = (valid_dates.max() - valid_dates.min()).days
-                # Correctly normalizes to ~3.0 for test data or ~5.9 for Maven
                 months_in_data = max(1.0, days_span / 30.44)
         else:
-            st.error(f"Mapping failed. Columns found: {list(df.columns)}")
+            st.error(f"Mapping failed. Recognized: {list(name_map.values())}. Please ensure headers like 'coffee_name' and 'money' are present.")
             df = None
             
     except Exception as e: st.error(f"File Error: {e}")
@@ -128,7 +130,6 @@ if uploaded_file:
 # 5. PRICING ENGINE
 if df is not None:
     summary = df.groupby('item').agg({'quantity': 'sum', 'price': 'mean'}).reset_index()
-    # Normalize units sold immediately to kill the 79k inflation
     summary['Monthly Units Sold'] = (summary['quantity'] / months_in_data).round(0).astype(int)
     summary.rename(columns={'item': 'Item Name', 'price': 'Current Price'}, inplace=True)
 
@@ -160,7 +161,7 @@ if df is not None:
     )
     st.dataframe(styled_df, use_container_width=True)
 
-# 6. UPDATED OBJECTIVE & BIO
+# 6. OBJECTIVE & BIO
 st.divider()
 doc_col1, doc_col2 = st.columns([2, 1])
 
@@ -173,10 +174,10 @@ with doc_col1:
     """)
     st.subheader("Key Features")
     st.write("""
-    * **Hybrid Data Processing**: Utilizes a dual-entry system allowing for both large-scale structured file uploads (CSV/Excel) and unstructured 'messy' text input via an OpenAI-integrated AI Assistant.
-    * **Temporal Normalization**: Automatically detects the date range of imported datasets (up to 10,000+ rows) and normalizes sales volume to a standard 30-day monthly average for accurate forecasting.
-    * **Psychological Pricing Guardrails**: Implements a 'Left-Digit' capping algorithm that ensures price increases (based on high-volume performance) do not cross whole-dollar thresholds, preserving consumer price anchors.
-    * **Universal Data Repair**: A defensive programming layer that identifies and repairs malformed CSV files (Pipe or Comma delimited) and re-maps non-standard headers like 'Product_Detail' or 'Unit_Rate' automatically.
+    * **Hybrid Data Processing**: Utilizes a dual-entry system for both structured file uploads and unstructured AI-assisted text input.
+    * **Temporal Normalization**: Automatically detects date ranges to provide accurate 30-day monthly averages for sales forecasting.
+    * **Psychological Pricing Guardrails**: Implements 'Left-Digit' capping to preserve consumer price anchors during increases.
+    * **Universal Data Repair**: Repairs malformed CSV files and re-maps non-standard headers automatically.
     """)
 
 with doc_col2:
@@ -185,8 +186,8 @@ with doc_col2:
     st.write(f"*Third Year Economics Student | Business & Spanish Minors*")
     st.write("""
     I am a data-focused analyst passionate about using Python and Machine Learning to solve real-world 
-    financial problems. My background combines economic theory with technical execution, including:
+    financial problems.
     """)
     st.write("* **Technical Skills**: Python (Pandas, Streamlit), SQL, and API Integration.")
-    st.write("* **Focus**: Price Optimization, Market Analysis, and Business Automation.")
+    st.write("* **Focus**: Price Optimization and Business Automation.")
     st.markdown(f"[LinkedIn Profile](https://www.linkedin.com/in/aydan-celinski-a35738299/)")
