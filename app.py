@@ -57,7 +57,7 @@ if st.button("Ask Consultant"):
 
 st.divider()
 
-# 4. UNIVERSAL FILE UPLOADER
+# 4. UNIVERSAL FILE UPLOADER & DEEP DATA SCAN
 uploaded_file = st.file_uploader("Upload Coffee POS File (CSV or Excel)", type=["csv", "xlsx"])
 
 df = None
@@ -68,36 +68,29 @@ if uploaded_file:
         if uploaded_file.name.endswith('.csv'):
             raw_bytes = uploaded_file.getvalue()
             raw_text = raw_bytes.decode("utf-8-sig", errors="ignore")
-            # Handle both Pipe and Comma delimiters
             df = pd.read_csv(io.StringIO(raw_text), sep='|' if '|' in raw_text else ',')
         else:
             df = pd.read_excel(uploaded_file)
         
         df.columns = [str(c).lower().strip() for c in df.columns]
         
-        # 🎯 BROAD MAPPING: Catches both 'product_detail' and 'Product_Category'
+        # 🕵️ DEEP SCAN MAPPING: Highly specific to prevent 94k error
         name_map = {}
-        found_types = set()
         
-        # We search specifically for Item/Product first
+        # 1. Find Date FIRST (Crucial for $15k normalization)
         for c in df.columns:
-            if 'item' not in found_types:
-                if any(x in c for x in ['detail', 'description', 'category', 'product', 'item']) and 'id' not in c:
-                    name_map[c] = 'item'
-                    found_types.add('item')
+            if any(x in c for x in ['transaction_date', 'sale_date', 'date']):
+                temp_dates = pd.to_datetime(df[c], errors='coerce')
+                if temp_dates.dropna().shape[0] > 0:
+                    df['detected_date'] = temp_dates
+                    name_map[c] = 'date_raw'
                     break
-        
-        # Then search for other core metrics
+
+        # 2. Map Item, Qty, and Price (Specific keywords to prevent collisions)
         for c in df.columns:
-            if 'quantity' not in found_types and any(x in c for x in ['qty', 'quantity', 'sold', 'units']):
-                name_map[c] = 'quantity'
-                found_types.add('quantity')
-            elif 'price' not in found_types and any(x in c for x in ['price', 'rate', 'cost']):
-                name_map[c] = 'price'
-                found_types.add('price')
-            elif 'date' not in found_types and any(x in c for x in ['date', 'time', 'transaction', 'sale']):
-                name_map[c] = 'date'
-                found_types.add('date')
+            if any(x in c for x in ['detail', 'description', 'category']): name_map[c] = 'item'
+            elif any(x in c for x in ['qty', 'quantity', 'sold', 'units']): name_map[c] = 'quantity'
+            elif any(x in c for x in ['unit_price', 'price', 'rate']): name_map[c] = 'price'
         
         df = df.rename(columns=name_map)
         
@@ -105,24 +98,18 @@ if uploaded_file:
             for col in ['quantity', 'price']:
                 df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
             
-            # 🕒 TEMPORAL NORMALIZATION (THE 94K KILLER)
-            if 'date' in df.columns:
-                df['date'] = pd.to_datetime(df['date'], errors='coerce')
-                valid_dates = df['date'].dropna()
-                if not valid_dates.empty:
-                    days_span = (valid_dates.max() - valid_dates.min()).days
-                    # Calculate real months collected
-                    months_in_data = max(1.0, days_span / 30.44)
-        else:
-            st.error(f"Could not map columns. Found: {list(df.columns)}")
-            df = None
-            
+            # 🕒 THE 94K KILLER: CALCULATE MONTHS
+            if 'detected_date' in df.columns:
+                valid_dates = df['detected_date'].dropna()
+                days_span = (valid_dates.max() - valid_dates.min()).days
+                # Results in ~5.9 for Maven Roasters, and ~3.0 for your Test Data
+                months_in_data = max(1.0, days_span / 30.44)
     except Exception as e: st.error(f"File Error: {e}")
 
 # 5. PRICING ENGINE (NORMALIZED MATH)
 if df is not None:
     summary = df.groupby('item').agg({'quantity': 'sum', 'price': 'mean'}).reset_index()
-    # Average out lifetime data by the months collected
+    # Average lifetime units into monthly units
     summary['Monthly Units Sold'] = (summary['quantity'] / months_in_data).round(0).astype(int)
     summary.rename(columns={'item': 'Item Name', 'price': 'Current Price'}, inplace=True)
 
@@ -176,8 +163,8 @@ with doc_col1:
 
 with doc_col2:
     st.header("About the Developer")
-    st.write(f"**Aydan P. Celinski** *University of Colorado Boulder*")
-    st.write(f"*Third Year Economics Student | Business & Spanish Minors*")
+    st.write(f"**Aydan P. Celinski** *Third Year Economics Student at the University of Colorado Boulder*")
+    st.write(f"*Economics Major | Business & Spanish Minors*")
     st.write("""
     I am a data-focused analyst passionate about using Python and Machine Learning to solve real-world 
     financial problems. My background combines economic theory with technical execution, including:
