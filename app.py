@@ -28,7 +28,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# 2. SIDEBAR - API SECURITY
+# 2. SIDEBAR
 st.sidebar.header("🔑 AI Consultant Setup")
 api_key = st.sidebar.text_input("Enter OpenAI API Key", type="password")
 
@@ -46,21 +46,18 @@ def ai_strategy_consultant(user_query, key):
 
 st.subheader("🎓 Strategic AI Consultant")
 user_query = st.text_input("Ask a strategy question:")
-
 if st.button("Ask Consultant"):
-    if not api_key:
-        st.warning("Please enter your API key in the sidebar.")
+    if not api_key: st.warning("Enter API key in sidebar.")
     elif user_query:
         with st.spinner("Consulting..."):
             try:
                 answer = ai_strategy_consultant(user_query, api_key)
                 st.markdown(f"> **Consultant's Insight:** {answer}")
-            except Exception as e:
-                st.error(f"AI Error: {e}")
+            except Exception as e: st.error(f"AI Error: {e}")
 
 st.divider()
 
-# 4. FILE UPLOADER & DATA REPAIR
+# 4. FILE UPLOADER & FORCED DATE MAPPING
 uploaded_file = st.file_uploader("Upload Maven Roasters POS file", type=["csv", "xlsx"])
 
 df = None
@@ -78,7 +75,6 @@ if uploaded_file:
         
         df.columns = [str(c).lower().strip() for c in df.columns]
         
-        # Mapping logic - restoring item names over IDs
         name_map = {}
         for c in df.columns:
             if any(x in c for x in ['detail', 'description']): name_map[c] = 'item'
@@ -97,34 +93,36 @@ if uploaded_file:
             for col in ['quantity', 'price']:
                 df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
             
-            # NORMALIZATION MATH
+            # 🕒 FORCED TEMPORAL NORMALIZATION
             if 'date' in df.columns:
                 df['date'] = pd.to_datetime(df['date'], errors='coerce')
                 valid_dates = df['date'].dropna()
                 if not valid_dates.empty:
                     days_span = (valid_dates.max() - valid_dates.min()).days
+                    # Calculate months (e.g., ~5.9 for Maven Roasters)
                     months_in_data = max(1, days_span / 30.44)
-    except Exception as e:
-        st.error(f"File Error: {e}")
+    except Exception as e: st.error(f"File Error: {e}")
 
-# 5. PRICING ENGINE - FORCED NORMALIZATION
+# 5. PRICING ENGINE - THE "94K KILLER" MATH
 if df is not None:
+    # Get the raw totals
     summary = df.groupby('item').agg({'quantity': 'sum', 'price': 'mean'}).reset_index()
-    # Normalize units sold immediately
+    
+    # 1. NORMALIZE THE QUANTITY IMMEDIATELY
     summary['Monthly Units Sold'] = (summary['quantity'] / months_in_data).round(0).astype(int)
     summary.rename(columns={'item': 'Item Name', 'price': 'Current Price'}, inplace=True)
 
     def run_optimization(row):
-        p, units = row['Current Price'], row['Monthly Units Sold']
+        p, m_units = row['Current Price'], row['Monthly Units Sold'] # USE ONLY NORMALIZED UNITS
         dollar = math.floor(p)
-        if units > 35:
+        if m_units > 35:
             new_p = dollar + 0.99 if math.floor(p + 0.50) > dollar else p + 0.50
-            # Math strictly uses monthly units
-            return new_p, (new_p - p) * units, "Increase"
-        elif units < 10:
+            # IMPACT = PRICE CHANGE * MONTHLY UNITS
+            return new_p, (new_p - p) * m_units, "Increase"
+        elif m_units < 10:
             new_p = max(0.99, p - 0.50)
-            extra = units * 0.20
-            gain = max(0, (new_p * (units + extra)) - (p * units))
+            extra_m = m_units * 0.20
+            gain = max(0, (new_p * (m_units + extra_m)) - (p * m_units))
             return new_p, gain, "Decrease"
         return p, 0, "Hold"
 
@@ -136,9 +134,9 @@ if df is not None:
 
     st.subheader(f"Strategy Analysis ({months_in_data:.1f} Months Normalized)")
     
-    # FINAL GUARDRAIL: Metric strictly sums the normalized impacts
-    total_impact = summary['Monthly Impact'].sum()
-    st.metric("Total Projected Monthly Gain", f"+${total_impact:,.2f}")
+    # FINAL CHECK: The metric sums only the normalized monthly impacts
+    total_gain = summary['Monthly Impact'].sum()
+    st.metric("Total Projected Monthly Gain", f"+${total_gain:,.2f}")
     
     styled_df = summary[['Item Name', 'Monthly Units Sold', 'Current Price', 'AI Suggested Price', 'Proj. Monthly Gain', 'Strategy']].style.applymap(
         lambda x: 'background-color: #C6F4D6' if x == 'Increase' else ('background-color: #F8D7DA' if x == 'Decrease' else ''), 
