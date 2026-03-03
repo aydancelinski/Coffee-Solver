@@ -34,7 +34,7 @@ api_key = st.sidebar.text_input("Enter OpenAI API Key", type="password", help="N
 
 st.title("Celinski's Coffee Solver »")
 
-# 3. AI CHAT ASSISTANT (Limited to small snippets to avoid 429 errors)
+# 3. AI CHAT ASSISTANT (For small snippets only)
 def ai_data_translator(user_input, key):
     client = openai.OpenAI(api_key=key)
     system_prompt = "Convert messy text into a CSV with headers: item, quantity, price, date. Only return CSV text."
@@ -45,7 +45,7 @@ def ai_data_translator(user_input, key):
     return response.choices[0].message.content
 
 st.subheader("💬 AI Data Assistant")
-user_chat = st.text_area("Paste small snippets of messy data here (limit 20 rows):")
+user_chat = st.text_area("Paste snippets here (max 20 rows):")
 
 ai_df = None
 if st.button("Process with AI"):
@@ -62,8 +62,8 @@ if st.button("Process with AI"):
 
 st.divider()
 
-# 4. FILE UPLOADER & UNIVERSAL REPAIR (FOR FULL 10,000 ROW FILES)
-uploaded_file = st.file_uploader("OR Upload your full POS CSV or Excel file", type=["csv", "xlsx"])
+# 4. FILE UPLOADER & THE "PIPE" REPAIR
+uploaded_file = st.file_uploader("Upload your full POS CSV or Excel file", type=["csv", "xlsx"])
 
 df = None
 if ai_df is not None:
@@ -73,33 +73,41 @@ elif uploaded_file:
         if uploaded_file.name.endswith('.csv'):
             raw_bytes = uploaded_file.getvalue()
             raw_text = raw_bytes.decode("utf-8-sig", errors="ignore")
-            df = pd.read_csv(io.StringIO(raw_text))
             
-            # --- THE FORCE SPLITTER FIX ---
-            # Automatically detect if Excel put everything in Column A and split it
-            if len(df.columns) == 1:
-                col_name = str(df.columns[0])
-                if ',' in col_name:
+            # --- THE FINAL FIX: Detect Pipe (|) or Comma (,) ---
+            first_line = raw_text.split('\n')[0]
+            if '|' in first_line:
+                df = pd.read_csv(io.StringIO(raw_text), sep='|')
+            else:
+                df = pd.read_csv(io.StringIO(raw_text))
+                # Fallback for "all-in-one-column" comma issues
+                if len(df.columns) == 1 and ',' in str(df.columns[0]):
                     df = pd.read_csv(io.StringIO(raw_text), sep=',')
         else:
             df = pd.read_excel(uploaded_file)
         
-        # Standardize all headers as strings
+        # Standardize headers
         df.columns = [str(c) for c in df.columns]
         cols = {c.lower().strip(): c for c in df.columns}
         name_map = {}
         for c in cols:
-            if any(x in c for x in ['item', 'product', 'description']): name_map[cols[c]] = 'item'
+            # Match item, detail, or description
+            if any(x in c for x in ['item', 'product', 'detail', 'description']): name_map[cols[c]] = 'item'
+            # Match qty, count, or sold
             if any(x in c for x in ['qty', 'quantity', 'sold', 'count']): name_map[cols[c]] = 'quantity'
+            # Match price, rate, or amount
             if any(x in c for x in ['price', 'rate', 'amount']): name_map[cols[c]] = 'price'
+            # Match date, time, or day
             if any(x in c for x in ['date', 'time', 'day']): name_map[cols[c]] = 'date'
         
         df = df.rename(columns=name_map)
         
-        # Cleanup numbers
+        # Clean numeric data
         for col in ['quantity', 'price']:
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+            else:
+                df[col] = 0
                 
     except Exception as e:
         st.error(f"File Processing Error: {e}")
@@ -150,4 +158,4 @@ if df is not None and 'item' in df.columns:
             st.warning("No date column detected for trends.")
 else:
     if uploaded_file or ai_df is not None:
-        st.error("Could not find required columns. Ensure your data has headers for Item, Price, and Quantity.")
+        st.error("Could not find required columns (Item, Price, Quantity). Please check your file headers.")
