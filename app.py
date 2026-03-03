@@ -28,9 +28,9 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# 2. SIDEBAR - API SECURITY
+# 2. SIDEBAR
 st.sidebar.header("🔑 AI Consultant Setup")
-api_key = st.sidebar.text_input("Enter OpenAI API Key", type="password", help="Required for the Strategic Consultant.")
+api_key = st.sidebar.text_input("Enter OpenAI API Key", type="password")
 
 st.title("Celinski's Coffee Solver »")
 
@@ -38,13 +38,11 @@ st.title("Celinski's Coffee Solver »")
 def ai_strategy_consultant(user_query, key):
     client = openai.OpenAI(api_key=key)
     system_prompt = """
-    You are an Economic Strategy Consultant for 'Celinski Coffee Solver'. 
-    Explain pricing decisions using economic theory:
-    - We use $0.50 buckets to test elasticity without high churn.
-    - We cap prices at $0.99 to respect 'Left-Digit' anchors.
-    - High volume items (>35/mo) have inelastic demand, allowing for hikes.
-    - Low volume items (<10/mo) get drops to test price sensitivity.
-    Keep answers concise and professional.
+    You are an Economic Strategy Consultant. Explain pricing using Elasticity and Left-Digit anchors.
+    - $0.50 buckets test elasticity.
+    - $0.99 caps respect 'Left-Digit' anchors.
+    - High volume (>35/mo) is inelastic.
+    - Low volume (<10/mo) tests price sensitivity.
     """
     response = client.chat.completions.create(
         model="gpt-4o-mini",
@@ -53,48 +51,43 @@ def ai_strategy_consultant(user_query, key):
     return response.choices[0].message.content
 
 st.subheader("🎓 Strategic AI Consultant")
-st.info("Ask about the economic logic behind these pricing recommendations.")
-user_query = st.text_input("e.g., 'Why use a 50 cent increase?' or 'Explain the $0.99 cap'")
-
+user_query = st.text_input("Ask a strategy question:")
 if st.button("Ask Consultant"):
-    if not api_key:
-        st.warning("Please enter your OpenAI API key in the sidebar.")
+    if not api_key: st.warning("Enter API key.")
     elif user_query:
-        with st.spinner("Consulting Economic Theory..."):
+        with st.spinner("Consulting..."):
             try:
                 answer = ai_strategy_consultant(user_query, api_key)
                 st.markdown(f"> **Consultant's Insight:** {answer}")
-            except Exception as e:
-                st.error(f"AI Error: {e}")
+            except Exception as e: st.error(f"AI Error: {e}")
 
 st.divider()
 
-# 4. FILE UPLOADER & THE "PIPE/TIME" REPAIR
-uploaded_file = st.file_uploader("Upload Maven Roasters POS file (CSV or Excel)", type=["csv", "xlsx"])
+# 4. FILE UPLOADER
+uploaded_file = st.file_uploader("Upload Maven Roasters POS file", type=["csv", "xlsx"])
 
 df = None
-months_in_data = 1
+months_in_data = 1.0
 
 if uploaded_file:
     try:
         if uploaded_file.name.endswith('.csv'):
             raw_bytes = uploaded_file.getvalue()
             raw_text = raw_bytes.decode("utf-8-sig", errors="ignore")
-            first_line = raw_text.split('\n')[0]
-            df = pd.read_csv(io.StringIO(raw_text), sep='|' if '|' in first_line else ',')
+            df = pd.read_csv(io.StringIO(raw_text), sep='|' if '|' in raw_text else ',')
         else:
             df = pd.read_excel(uploaded_file)
         
         df.columns = [str(c).lower().strip() for c in df.columns]
+        
+        # Fixed Mapping: Ensures Date is found for normalization
         name_map = {}
         for c in df.columns:
-            # Priority mapping for Item Name to avoid ID columns
             if any(x in c for x in ['detail', 'description']): name_map[c] = 'item'
             elif 'item' not in name_map.values() and any(x in c for x in ['product', 'item']) and 'id' not in c:
                 name_map[c] = 'item'
-            
-            if any(x in c for x in ['qty', 'quantity', 'sold', 'count']): name_map[c] = 'quantity'
-            if any(x in c for x in ['price', 'rate', 'unit_price']): name_map[c] = 'price'
+            if any(x in c for x in ['qty', 'quantity', 'sold']): name_map[c] = 'quantity'
+            if any(x in c for x in ['price', 'rate']): name_map[c] = 'price'
             if any(x in c for x in ['date', 'time']): name_map[c] = 'date'
         
         df = df.rename(columns=name_map)
@@ -104,83 +97,60 @@ if uploaded_file:
             for col in ['quantity', 'price']:
                 df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
             
-            # TEMPORAL NORMALIZATION
+            # 🕒 TIME NORMALIZATION
             if 'date' in df.columns:
                 df['date'] = pd.to_datetime(df['date'], errors='coerce')
                 valid_dates = df['date'].dropna()
                 if not valid_dates.empty:
                     days_span = (valid_dates.max() - valid_dates.min()).days
-                    # Calculate real months (e.g., ~5.9 for Maven Roasters)
-                    months_in_data = max(1, days_span / 30.44) 
-        else:
-            st.error("Missing required columns.")
-            df = None
-    except Exception as e:
-        st.error(f"File Error: {e}")
+                    months_in_data = max(1.0, days_span / 30.44)
+    except Exception as e: st.error(f"File Error: {e}")
 
-# 5. PRICING ENGINE WITH MONTHLY NORMALIZATION
-if df is not None and 'item' in df.columns:
+# 5. PRICING ENGINE - FIXED MATH
+if df is not None:
     summary = df.groupby('item').agg({'quantity': 'sum', 'price': 'mean'}).reset_index()
     
-    # NORMALIZE VOLUME IMMEDIATELY
+    # 1. Force normalized units
     summary['Monthly Units Sold'] = (summary['quantity'] / months_in_data).round(0).astype(int)
     summary.rename(columns={'item': 'Item Name', 'price': 'Current Price'}, inplace=True)
 
     def run_optimization(row):
-        curr_p = row['Current Price']
-        m_units = row['Monthly Units Sold'] # USES NORMALIZED UNITS ONLY
-        curr_d = math.floor(curr_p)
-        
+        p, m_units = row['Current Price'], row['Monthly Units Sold']
+        dollar = math.floor(p)
         if m_units > 35:
-            suggested = curr_p + 0.50
-            new_p = curr_d + 0.99 if math.floor(suggested) > curr_d else suggested
-            # IMPACT = PRICE CHANGE * MONTHLY UNITS
-            return new_p, (new_p - curr_p) * m_units, "Increase"
+            new_p = dollar + 0.99 if math.floor(p + 0.50) > dollar else p + 0.50
+            # FIXED: Profit is (Price Change) * MONTHLY Units, not lifetime units
+            return new_p, (new_p - p) * m_units, "Increase"
         elif m_units < 10:
-            new_p = max(0.99, curr_p - 0.50)
+            new_p = max(0.99, p - 0.50)
             extra_m = m_units * 0.20
-            gain = max(0, (new_p * (m_units + extra_m)) - (curr_p * m_units))
+            gain = max(0, (new_p * (m_units + extra_m)) - (p * m_units))
             return new_p, gain, "Decrease"
-        return curr_p, 0, "Hold"
+        return p, 0, "Hold"
 
     results = summary.apply(run_optimization, axis=1)
     summary['AI Suggested Price'] = [x[0] for x in results]
-    summary['Monthly Impact'] = [round(float(x[1]), 2) for x in results]
+    summary['Monthly Impact'] = [float(x[1]) for x in results]
     summary['Strategy'] = [x[2] for x in results]
     summary['Proj. Monthly Gain'] = summary['Monthly Impact'].apply(lambda x: f"+${x:,.2f}" if x > 0 else "$0")
 
-    def color_strategy(val):
-        if val == "Increase": color = 'background-color: #C6F4D6; color: #1E4620'
-        elif val == "Decrease": color = 'background-color: #F8D7DA; color: #721C24'
-        else: color = ''
-        return color
-
-    st.subheader(f"Strategy Analysis ({months_in_data:.1f} months normalized)")
+    st.subheader(f"Strategy Analysis ({months_in_data:.1f} Months Normalized)")
+    # FIXED: Metric sums only the normalized monthly impacts
     st.metric("Total Projected Monthly Gain", f"+${summary['Monthly Impact'].sum():,.2f}")
     
-    styled_df = summary[['Item Name', 'Monthly Units Sold', 'Current Price', 'AI Suggested Price', 'Proj. Monthly Gain', 'Strategy']].style.applymap(color_strategy, subset=['Strategy'])
+    styled_df = summary[['Item Name', 'Monthly Units Sold', 'Current Price', 'AI Suggested Price', 'Proj. Monthly Gain', 'Strategy']].style.applymap(
+        lambda x: 'background-color: #C6F4D6' if x == 'Increase' else ('background-color: #F8D7DA' if x == 'Decrease' else ''), 
+        subset=['Strategy']
+    )
     st.dataframe(styled_df, use_container_width=True)
 
-# 6. DOCUMENTATION & BIO
+# 6. BIO
 st.divider()
-doc_col1, doc_col2 = st.columns([2, 1])
-with doc_col1:
+c1, c2 = st.columns([2, 1])
+with c1:
     st.header("📘 Project Documentation")
-    st.write("""
-    ### Objective
-    Developed by an Economics student to automate price elasticity analysis for small businesses.
-    ### Key Features
-    * **Temporal Normalization**: Averages sales over time (10,000+ rows) for accurate 30-day forecasting.
-    * **Psychological Pricing**: Capping hikes at $0.99 to respect 'Left-Digit' consumer anchors.
-    * **Universal Repair**: Automatically handles Pipe (|) and Comma (,) delimited POS exports.
-    """)
-with doc_col2:
+    st.write("Averaging sales over 10,000+ rows for accurate 30-day forecasting with psychological price caps.")
+with c2:
     st.header("👤 About the Developer")
-    st.write("""
-    **Aydan P. Celinski** | *Third Year Economics Student at the University of Colorado Boulder*
-    
-    * **Specialization**: Price Optimization, Market Analysis, and Business Automation.
-    * **Technical Skills**: Python (Pandas, Streamlit), SQL, and API Integration.
-    
-    [LinkedIn Profile](https://www.linkedin.com/in/aydan-celinski-a35738299/)
-    """)
+    st.write("**Aydan P. Celinski** | *Third Year Economics Student at the University of Colorado Boulder*")
+    st.write("[LinkedIn Profile](https://www.linkedin.com/in/aydan-celinski-a35738299/)")
