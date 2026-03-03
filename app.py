@@ -88,52 +88,63 @@ if uploaded_file:
         df.columns = [str(c).lower().strip() for c in df.columns]
         name_map = {}
         for c in df.columns:
-            if any(x in c for x in ['detail', 'item', 'product']): name_map[c] = 'item'
+            # Priority mapping for Item Name to avoid ID columns
+            if any(x in c for x in ['detail', 'description']): name_map[c] = 'item'
+            elif 'item' not in name_map.values() and any(x in c for x in ['product', 'item']) and 'id' not in c:
+                name_map[c] = 'item'
+            
             if any(x in c for x in ['qty', 'quantity', 'sold', 'count']): name_map[c] = 'quantity'
             if any(x in c for x in ['price', 'rate', 'unit_price']): name_map[c] = 'price'
             if any(x in c for x in ['date', 'time']): name_map[c] = 'date'
         
         df = df.rename(columns=name_map)
-        df = df.loc[:, ~df.columns.duplicated()]
+        df = df.loc[:, ~df.columns.duplicated(keep='last')]
         
         if all(col in df.columns for col in ['item', 'quantity', 'price']):
             for col in ['quantity', 'price']:
                 df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
             
+            # TEMPORAL NORMALIZATION
             if 'date' in df.columns:
                 df['date'] = pd.to_datetime(df['date'], errors='coerce')
-                days_span = (df['date'].max() - df['date'].min()).days
-                months_in_data = max(1, days_span / 30.44) 
+                valid_dates = df['date'].dropna()
+                if not valid_dates.empty:
+                    days_span = (valid_dates.max() - valid_dates.min()).days
+                    # Calculate real months (e.g., ~5.9 for Maven Roasters)
+                    months_in_data = max(1, days_span / 30.44) 
         else:
             st.error("Missing required columns.")
             df = None
     except Exception as e:
         st.error(f"File Error: {e}")
 
-# 5. PRICING ENGINE WITH FORMATTING & ROUNDING
+# 5. PRICING ENGINE WITH MONTHLY NORMALIZATION
 if df is not None and 'item' in df.columns:
     summary = df.groupby('item').agg({'quantity': 'sum', 'price': 'mean'}).reset_index()
+    
+    # NORMALIZE VOLUME IMMEDIATELY
     summary['Monthly Units Sold'] = (summary['quantity'] / months_in_data).round(0).astype(int)
     summary.rename(columns={'item': 'Item Name', 'price': 'Current Price'}, inplace=True)
 
     def run_optimization(row):
         curr_p = row['Current Price']
-        units = row['Monthly Units Sold']
+        m_units = row['Monthly Units Sold'] # USES NORMALIZED UNITS ONLY
         curr_d = math.floor(curr_p)
-        if units > 35:
+        
+        if m_units > 35:
             suggested = curr_p + 0.50
             new_p = curr_d + 0.99 if math.floor(suggested) > curr_d else suggested
-            return new_p, (new_p - curr_p) * units, "Increase"
-        elif units < 10:
+            # IMPACT = PRICE CHANGE * MONTHLY UNITS
+            return new_p, (new_p - curr_p) * m_units, "Increase"
+        elif m_units < 10:
             new_p = max(0.99, curr_p - 0.50)
-            extra = units * 0.20
-            gain = max(0, (new_p * (units + extra)) - (curr_p * units))
+            extra_m = m_units * 0.20
+            gain = max(0, (new_p * (m_units + extra_m)) - (curr_p * m_units))
             return new_p, gain, "Decrease"
         return curr_p, 0, "Hold"
 
     results = summary.apply(run_optimization, axis=1)
     summary['AI Suggested Price'] = [x[0] for x in results]
-    # Fixed AttributeError by using round() on values, not the list
     summary['Monthly Impact'] = [round(float(x[1]), 2) for x in results]
     summary['Strategy'] = [x[2] for x in results]
     summary['Proj. Monthly Gain'] = summary['Monthly Impact'].apply(lambda x: f"+${x:,.2f}" if x > 0 else "$0")
@@ -166,8 +177,10 @@ with doc_col1:
 with doc_col2:
     st.header("👤 About the Developer")
     st.write("""
-    **Aydan P. Celinski** | *CU Boulder Economics*
-    * **Google Data Analytics candidate.**
-    * **Specialization**: Price Optimization & Business Automation.
-    [LinkedIn](#) | [GitHub](#)
+    **Aydan P. Celinski** | *Third Year Economics Student at the University of Colorado Boulder*
+    
+    * **Specialization**: Price Optimization, Market Analysis, and Business Automation.
+    * **Technical Skills**: Python (Pandas, Streamlit), SQL, and API Integration.
+    
+    [LinkedIn Profile](https://www.linkedin.com/in/aydan-celinski-a35738299/)
     """)
