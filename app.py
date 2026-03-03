@@ -57,7 +57,7 @@ if st.button("Ask Consultant"):
 
 st.divider()
 
-# 4. UNIVERSAL FILE UPLOADER & DEEP DATA SCAN
+# 4. UNIVERSAL FILE UPLOADER
 uploaded_file = st.file_uploader("Upload Coffee POS File (CSV or Excel)", type=["csv", "xlsx"])
 
 df = None
@@ -74,68 +74,68 @@ if uploaded_file:
         
         df.columns = [str(c).lower().strip() for c in df.columns]
         
-        # 🕵️ DEEP SCAN MAPPING
+        # 🎯 SMART MAPPING & DEDUPLICATION (Fixes "cannot assemble with duplicate keys")
         name_map = {}
-        found_mapped_types = set()
+        found_cols = set()
         
-        # 1. Find Date FIRST (Fixes the 79k error)
+        # Prioritize finding ITEM first
         for c in df.columns:
-            if any(x in c for x in ['date', 'time', 'transaction', 'sale']):
-                # Try to force conversion to confirm it's a date
-                temp_dates = pd.to_datetime(df[c], errors='coerce')
-                if temp_dates.dropna().shape[0] > 0:
-                    df['detected_date'] = temp_dates
-                    found_mapped_types.add('date')
-                    break
-
-        # 2. Map Item, Quantity, and Price
-        for c in df.columns:
-            if 'item' not in found_mapped_types and any(x in c for x in ['detail', 'description', 'category', 'product']):
-                if 'id' not in c:
+            if 'item' not in found_cols:
+                if any(x in c for x in ['product_detail', 'product_description', 'detail', 'description']):
                     name_map[c] = 'item'
-                    found_mapped_types.add('item')
-            elif 'quantity' not in found_mapped_types and any(x in c for x in ['qty', 'quantity', 'sold', 'units']):
+                    found_cols.add('item')
+                    break
+        
+        # Then map the rest
+        for c in df.columns:
+            if 'quantity' not in found_cols and any(x in c for x in ['transaction_qty', 'qty', 'quantity', 'sold']):
                 name_map[c] = 'quantity'
-                found_mapped_types.add('quantity')
-            elif 'price' not in found_mapped_types and any(x in c for x in ['price', 'rate', 'unit']):
+                found_cols.add('quantity')
+            elif 'price' not in found_cols and any(x in c for x in ['unit_price', 'price', 'rate']):
                 name_map[c] = 'price'
-                found_mapped_types.add('price')
+                found_cols.add('price')
+            elif 'date' not in found_cols and any(x in c for x in ['transaction_date', 'date', 'time']):
+                name_map[c] = 'date'
+                found_cols.add('date')
         
         df = df.rename(columns=name_map)
+        
+        # Keep only successfully mapped columns
+        df = df[[col for col in name_map.values()]]
         
         if all(col in df.columns for col in ['item', 'quantity', 'price']):
             for col in ['quantity', 'price']:
                 df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
             
-            # 🕒 THE NORMALIZATION ANCHOR
-            if 'detected_date' in df.columns:
-                valid_dates = df['detected_date'].dropna()
-                days_span = (valid_dates.max() - valid_dates.min()).days
-                # Correctly normalizes to ~3.0 for your test file or ~5.9 for Maven
-                months_in_data = max(1.0, days_span / 30.44)
+            # 🕒 TEMPORAL NORMALIZATION (THE 94K KILLER)
+            if 'date' in df.columns:
+                df['date'] = pd.to_datetime(df['date'], errors='coerce')
+                valid_dates = df['date'].dropna()
+                if not valid_dates.empty:
+                    days_span = (valid_dates.max() - valid_dates.min()).days
+                    months_in_data = max(1.0, days_span / 30.44)
         else:
-            st.error(f"Could not map columns. Found: {list(df.columns)}")
+            st.error("Could not find Item, Quantity, or Price columns.")
             df = None
             
     except Exception as e: st.error(f"File Error: {e}")
 
-# 5. PRICING ENGINE (NORMALIZED MATH)
+# 5. PRICING ENGINE
 if df is not None:
     summary = df.groupby('item').agg({'quantity': 'sum', 'price': 'mean'}).reset_index()
-    # Average lifetime volume over the months collected
     summary['Monthly Units Sold'] = (summary['quantity'] / months_in_data).round(0).astype(int)
     summary.rename(columns={'item': 'Item Name', 'price': 'Current Price'}, inplace=True)
 
     def run_optimization(row):
-        p, m_units = row['Current Price'], row['Monthly Units Sold']
+        p, units = row['Current Price'], row['Monthly Units Sold']
         dollar = math.floor(p)
-        if m_units > 35:
+        if units > 35:
             new_p = dollar + 0.99 if math.floor(p + 0.50) > dollar else p + 0.50
-            return new_p, (new_p - p) * m_units, "Increase"
-        elif m_units < 10:
+            return new_p, (new_p - p) * units, "Increase"
+        elif units < 10:
             new_p = max(0.99, p - 0.50)
-            extra_m = m_units * 0.20
-            gain = max(0, (new_p * (m_units + extra_m)) - (p * m_units))
+            extra = units * 0.20
+            gain = max(0, (new_p * (units + extra)) - (p * units))
             return new_p, gain, "Decrease"
         return p, 0, "Hold"
 
@@ -154,7 +154,7 @@ if df is not None:
     )
     st.dataframe(styled_df, use_container_width=True)
 
-# 6. RESTORED EXACT DOCUMENTATION & BIO LAYOUT
+# 6. RESTORED DOCUMENTATION & BIO
 st.divider()
 doc_col1, doc_col2 = st.columns([2, 1])
 
@@ -176,8 +176,8 @@ with doc_col1:
 
 with doc_col2:
     st.header("About the Developer")
-    st.write(f"**Aydan P. Celinski** *Third Year Economics Student at the University of Colorado Boulder*")
-    st.write(f"*Economics Major | Business & Spanish Minors*")
+    st.write(f"**Aydan P. Celinski** *University of Colorado Boulder*")
+    st.write(f"*Third Year Economics Student | Business & Spanish Minors*")
     st.write("""
     I am a data-focused analyst passionate about using Python and Machine Learning to solve real-world 
     financial problems. My background combines economic theory with technical execution, including:
