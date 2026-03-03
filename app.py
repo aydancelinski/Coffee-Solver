@@ -6,7 +6,6 @@ import math
 # 1. SETUP & STYLE
 st.set_page_config(page_title="Celinski Coffee Solver", layout="wide")
 
-# Custom CSS for the mocha-themed UI
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Quicksand:wght@700&display=swap');
@@ -30,7 +29,7 @@ st.markdown("""
 st.title("Celinski's Coffee Solver »")
 
 # 2. FILE UPLOADER & THE "PIPE" REPAIR
-uploaded_file = st.file_uploader("Upload your full POS CSV or Excel file", type=["csv", "xlsx"])
+uploaded_file = st.file_uploader("Upload your Maven Roasters POS file", type=["csv", "xlsx"])
 
 df = None
 if uploaded_file:
@@ -39,36 +38,23 @@ if uploaded_file:
             raw_bytes = uploaded_file.getvalue()
             raw_text = raw_bytes.decode("utf-8-sig", errors="ignore")
             
-            # Detect Delimiter (Pipe or Comma)
+            # Detect Delimiter
             first_line = raw_text.split('\n')[0]
-            if '|' in first_line:
-                df = pd.read_csv(io.StringIO(raw_text), sep='|')
-            else:
-                df = pd.read_csv(io.StringIO(raw_text))
-                # Fallback for "all-in-one-column" comma issues
-                if len(df.columns) == 1 and ',' in str(df.columns[0]):
-                    df = pd.read_csv(io.StringIO(raw_text), sep=',')
+            df = pd.read_csv(io.StringIO(raw_text), sep='|' if '|' in first_line else ',')
         else:
             df = pd.read_excel(uploaded_file)
         
-        # Standardize headers to lower case strings for matching
+        # Standardize headers
         df.columns = [str(c).lower().strip() for c in df.columns]
         
-        # STRICT MAPPING - Specifically built for your "product_detail" file
         name_map = {}
         for c in df.columns:
-            if 'product_detail' in c or 'item' in c or 'product_description' in c: 
-                name_map[c] = 'item'
-            elif 'transaction_qty' in c or 'quantity' in c or 'qty' in c: 
-                name_map[c] = 'quantity'
-            elif 'unit_price' in c or 'price' in c or 'unit_rate' in c: 
-                name_map[c] = 'price'
-            elif 'transaction_date' in c or 'date' in c or 'sale_date' in c: 
-                name_map[c] = 'date'
+            if any(x in c for x in ['detail', 'item', 'product']): name_map[c] = 'item'
+            if any(x in c for x in ['qty', 'quantity', 'sold']): name_map[c] = 'quantity'
+            if any(x in c for x in ['price', 'rate']): name_map[c] = 'price'
+            if any(x in c for x in ['date', 'time']): name_map[c] = 'date'
         
         df = df.rename(columns=name_map)
-        
-        # Deduplicate columns if multiple headers matched the same keyword
         df = df.loc[:, ~df.columns.duplicated()]
         
         # Check for required columns
@@ -76,61 +62,67 @@ if uploaded_file:
         if all(col in df.columns for col in needed):
             for col in ['quantity', 'price']:
                 df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+            
+            # 🕒 TIME NORMALIZATION LOGIC
+            if 'date' in df.columns:
+                df['date'] = pd.to_datetime(df['date'], errors='coerce')
+                days_span = (df['date'].max() - df['date'].min()).days
+                # If data is less than a day, default to 1 to avoid division by zero
+                months_in_data = max(1, days_span / 30.44) 
+            else:
+                months_in_data = 1 # Fallback if no date found
         else:
-            st.error(f"Missing required columns. Found: {list(df.columns)}")
+            st.error("Missing columns (Item, Price, or Quantity).")
             df = None
                 
     except Exception as e:
-        st.error(f"File Processing Error: {e}")
+        st.error(f"File Error: {e}")
 
-# 3. PRICING ENGINE WITH PSYCHOLOGICAL GUARDRAILS
+# 3. PRICING ENGINE WITH MONTHLY NORMALIZATION
 if df is not None and 'item' in df.columns:
     summary = df.groupby('item').agg({'quantity': 'sum', 'price': 'mean'}).reset_index()
-    summary.rename(columns={'item': 'Item Name', 'quantity': 'Units Sold', 'price': 'Current Price'}, inplace=True)
+    
+    # Divide total quantity by number of months to get "Monthly Units Sold"
+    summary['Monthly Units Sold'] = summary['quantity'] / months_in_data
+    summary.rename(columns={'item': 'Item Name', 'price': 'Current Price'}, inplace=True)
 
     def run_optimization(row):
         current_price = row['Current Price']
-        units_sold = row['Units Sold']
-        current_rev = current_price * units_sold
+        monthly_units = row['Monthly Units Sold']
         current_dollar = math.floor(current_price)
         
-        # SCENARIO A: HIGH VOLUME (Increase price)
-        if units_sold > 35:
+        # SCENARIO A: HIGH VOLUME (> 35 units per month)
+        if monthly_units > 35:
             suggested = current_price + 0.50
-            # Guardrail: Don't flip the first digit (e.g., stay at $3.99 instead of $4.05)
             if math.floor(suggested) > current_dollar:
                 new_price = current_dollar + 0.99
             else:
                 new_price = suggested
             
-            # Ensure we never suggest lower than current for high volume
-            new_price = max(new_price, current_price)
-            return new_price, (new_price * units_sold) - current_rev
+            gain = (new_price - current_price) * monthly_units
+            return new_price, max(0, gain)
         
-        # SCENARIO B: LOW VOLUME (Price Drop to test elasticity)
-        elif units_sold < 10:
+        # SCENARIO B: LOW VOLUME (< 10 units per month)
+        elif monthly_units < 10:
             new_price = max(0.99, current_price - 0.50)
-            extra_units = units_sold * 0.20 # Assume 20% volume increase from drop
-            new_rev = new_price * (units_sold + extra_units)
-            # Only return gain if the new revenue is actually higher
-            gain = max(0, new_rev - current_rev)
-            return new_price, gain
+            extra_units = monthly_units * 0.20 
+            new_rev = new_price * (monthly_units + extra_units)
+            current_rev = current_price * monthly_units
+            return new_price, max(0, new_rev - current_rev)
             
         return current_price, 0
 
     results = summary.apply(run_optimization, axis=1)
     summary['AI Suggested Price'] = [x[0] for x in results]
-    summary['impact_num'] = [x[1] for x in results]
-    summary['Proj. Monthly Gain'] = summary['impact_num'].apply(lambda x: f"+${x:,.2f}" if x > 0 else "$0")
+    summary['Monthly Impact'] = [x[1] for x in results]
 
-    # Display Results
-    tab1, tab2 = st.tabs(["Pricing Strategy", "Sales Volume"])
+    # UI Display
+    st.subheader(f"Strategy for Maven Roasters (Averaged over {months_in_data:.1f} months)")
     
-    with tab1:
-        st.subheader("Optimization Recommendations")
-        st.dataframe(summary[['Item Name', 'Units Sold', 'Current Price', 'AI Suggested Price', 'Proj. Monthly Gain']], use_container_width=True)
-        st.metric(label="Total Projected Monthly Profit Increase", value=f"+${summary['impact_num'].sum():,.2f}")
-    
-    with tab2:
-        st.subheader("Units Sold by Product")
-        st.bar_chart(summary.set_index('Item Name')['Units Sold'])
+    col1, col2 = st.columns(2)
+    with col1:
+        st.metric("Total Projected Monthly Gain", f"+${summary['Monthly Impact'].sum():,.2f}")
+    with col2:
+        st.metric("Total Items Analyzed", f"{len(summary)}")
+
+    st.dataframe(summary[['Item Name', 'Monthly Units Sold', 'Current Price', 'AI Suggested Price', 'Monthly Impact']], use_container_width=True)
