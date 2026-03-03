@@ -74,11 +74,10 @@ if uploaded_file:
         
         df.columns = [str(c).lower().strip() for c in df.columns]
         
-        # 🎯 SMART MAPPING & DEDUPLICATION (Fixes "cannot assemble with duplicate keys")
+        # 🎯 SMART MAPPING & DEDUPLICATION
         name_map = {}
         found_cols = set()
         
-        # Prioritize finding ITEM first
         for c in df.columns:
             if 'item' not in found_cols:
                 if any(x in c for x in ['product_detail', 'product_description', 'detail', 'description']):
@@ -86,7 +85,6 @@ if uploaded_file:
                     found_cols.add('item')
                     break
         
-        # Then map the rest
         for c in df.columns:
             if 'quantity' not in found_cols and any(x in c for x in ['transaction_qty', 'qty', 'quantity', 'sold']):
                 name_map[c] = 'quantity'
@@ -99,25 +97,18 @@ if uploaded_file:
                 found_cols.add('date')
         
         df = df.rename(columns=name_map)
-        
-        # Keep only successfully mapped columns
         df = df[[col for col in name_map.values()]]
         
         if all(col in df.columns for col in ['item', 'quantity', 'price']):
             for col in ['quantity', 'price']:
                 df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
             
-            # 🕒 TEMPORAL NORMALIZATION (THE 94K KILLER)
             if 'date' in df.columns:
                 df['date'] = pd.to_datetime(df['date'], errors='coerce')
                 valid_dates = df['date'].dropna()
                 if not valid_dates.empty:
                     days_span = (valid_dates.max() - valid_dates.min()).days
                     months_in_data = max(1.0, days_span / 30.44)
-        else:
-            st.error("Could not find Item, Quantity, or Price columns.")
-            df = None
-            
     except Exception as e: st.error(f"File Error: {e}")
 
 # 5. PRICING ENGINE
@@ -154,13 +145,12 @@ if df is not None:
     )
     st.dataframe(styled_df, use_container_width=True)
 
-# 6. RESTORED DOCUMENTATION & BIO
+# 6. UPDATED DOCUMENTATION & BIO
 st.divider()
 doc_col1, doc_col2 = st.columns([2, 1])
 
 with doc_col1:
-    st.header("Project Documentation")
-    st.subheader("Objective")
+    st.header("Objective")
     st.write("""
     The Celinski Coffee Solver was developed to bridge the gap between raw Point-of-Sale (POS) data and actionable business strategy. 
     As an Economics student, I recognized that small business owners often lack the tools to perform complex price elasticity 
