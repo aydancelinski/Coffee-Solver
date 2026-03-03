@@ -57,7 +57,7 @@ if st.button("Ask Consultant"):
 
 st.divider()
 
-# 4. UNIVERSAL FILE UPLOADER & AUTO-MAPPING
+# 4. UNIVERSAL FILE UPLOADER & DEEP SCAN
 uploaded_file = st.file_uploader("Upload Coffee POS File (CSV or Excel)", type=["csv", "xlsx"])
 
 df = None
@@ -74,48 +74,50 @@ if uploaded_file:
         
         df.columns = [str(c).lower().strip() for c in df.columns]
         
-        # 🎯 AUTO-MAPPING LOGIC
-        final_map = {}
+        # 🕵️ DEEP MAPPING: Highly aggressive for "Better Formatted" data
+        name_map = {}
+        found_mapped = set()
         
-        for col in df.columns:
-            # 1. Look for Date (To fix the normalization error)
-            if any(x in col for x in ['date', 'time', 'transaction', 'sale']):
-                temp_date = pd.to_datetime(df[col], errors='coerce')
+        # 1. DATE SCAN (Crucial for profit accuracy)
+        for c in df.columns:
+            if any(x in c for x in ['date', 'time', 'transaction', 'sale']):
+                temp_date = pd.to_datetime(df[c], errors='coerce')
                 if temp_date.dropna().shape[0] > 0:
-                    df['mapped_date'] = temp_date
-                    final_map[col] = 'date_col'
-            
-            # 2. Look for Item Name (Prioritize details/categories, avoid IDs)
-            elif any(x in col for x in ['product', 'item', 'detail', 'description', 'category']):
-                if 'id' not in col and 'item' not in final_map.values():
-                    final_map[col] = 'item'
-            
-            # 3. Look for Quantity
-            elif any(x in col for x in ['qty', 'quantity', 'sold', 'units']) and 'quantity' not in final_map.values():
-                final_map[col] = 'quantity'
-            
-            # 4. Look for Price
-            elif any(x in col for x in ['price', 'rate', 'unit']) and 'price' not in final_map.values():
-                final_map[col] = 'price'
+                    df['detected_date'] = temp_date
+                    found_mapped.add('date')
+                    break
 
-        df = df.rename(columns=final_map)
+        # 2. CATEGORY/PRODUCT SCAN
+        for c in df.columns:
+            if 'item' not in found_mapped:
+                if any(x in c for x in ['product', 'item', 'category', 'detail', 'description']):
+                    if 'id' not in c:
+                        name_map[c] = 'item'
+                        found_mapped.add('item')
+                        break
+
+        # 3. QUANTITY & PRICE SCAN
+        for c in df.columns:
+            if 'quantity' not in found_mapped and any(x in c for x in ['qty', 'quantity', 'units', 'sold']):
+                name_map[c] = 'quantity'
+                found_mapped.add('quantity')
+            elif 'price' not in found_mapped and any(x in c for x in ['price', 'rate', 'unit_price']):
+                name_map[c] = 'price'
+                found_mapped.add('price')
         
-        # Keep only the columns we successfully mapped
-        mapped_cols = [c for c in ['item', 'quantity', 'price'] if c in df.columns]
+        df = df.rename(columns=name_map)
         
-        if len(mapped_cols) == 3:
+        if all(col in df.columns for col in ['item', 'quantity', 'price']):
             for col in ['quantity', 'price']:
                 df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
             
-            # 🕒 TEMPORAL NORMALIZATION (THE 94K KILLER)
-            if 'mapped_date' in df.columns:
-                valid_dates = df['mapped_date'].dropna()
-                if not valid_dates.empty:
-                    days_span = (valid_dates.max() - valid_dates.min()).days
-                    # Calculate real months; default to 1.0 if it's a single-day file
-                    months_in_data = max(1.0, days_span / 30.44)
+            # 🕒 NORMALIZATION
+            if 'date' in found_mapped:
+                valid_dates = df['detected_date'].dropna()
+                days_span = (valid_dates.max() - valid_dates.min()).days
+                months_in_data = max(1.0, days_span / 30.44)
         else:
-            st.error(f"Mapping failed. Please ensure your file has Item, Quantity, and Price columns. Found: {list(df.columns)}")
+            st.error(f"Incomplete mapping. Columns recognized: {list(name_map.values())}")
             df = None
             
     except Exception as e: st.error(f"File Error: {e}")
@@ -123,7 +125,6 @@ if uploaded_file:
 # 5. PRICING ENGINE
 if df is not None:
     summary = df.groupby('item').agg({'quantity': 'sum', 'price': 'mean'}).reset_index()
-    # Average units sold over the months collected
     summary['Monthly Units Sold'] = (summary['quantity'] / months_in_data).round(0).astype(int)
     summary.rename(columns={'item': 'Item Name', 'price': 'Current Price'}, inplace=True)
 
@@ -176,8 +177,8 @@ with doc_col1:
 
 with doc_col2:
     st.header("About the Developer")
-    st.write(f"**Aydan P. Celinski** *Third Year Economics Student at the University of Colorado Boulder*")
-    st.write(f"*Economics Major | Business & Spanish Minors*")
+    st.write(f"**Aydan P. Celinski** *University of Colorado Boulder*")
+    st.write(f"*Third Year Economics Student | Business & Spanish Minors*")
     st.write("""
     I am a data-focused analyst passionate about using Python and Machine Learning to solve real-world 
     financial problems. My background combines economic theory with technical execution, including:
