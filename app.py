@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import io
 import math
-import openai
 
 # 1. SETUP & STYLE
 st.set_page_config(page_title="Celinski Coffee Solver", layout="wide")
@@ -24,138 +23,82 @@ st.markdown("""
         border-radius: 10px;
         color: #000000 !important;
     }
-    [data-testid="stSidebar"] { background-color: #E6D5B8 !important; }
     </style>
     """, unsafe_allow_html=True)
 
-# 2. SIDEBAR - API SECURITY
-st.sidebar.header("🔑 API Configuration")
-api_key = st.sidebar.text_input("Enter OpenAI API Key", type="password", help="Needed for AI snippets.")
-
 st.title("Celinski's Coffee Solver »")
 
-# 3. AI CHAT ASSISTANT (For small snippets only)
-def ai_data_translator(user_input, key):
-    client = openai.OpenAI(api_key=key)
-    system_prompt = "Convert messy text into a CSV with headers: item, quantity, price, date. Only return CSV text."
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_input}]
-    )
-    return response.choices[0].message.content
-
-st.subheader("💬 AI Data Assistant")
-user_chat = st.text_area("Paste snippets here (max 20 rows):")
-
-ai_df = None
-if st.button("Process with AI"):
-    if not api_key:
-        st.warning("Enter your OpenAI key in the sidebar.")
-    elif user_chat:
-        with st.spinner("AI is translating..."):
-            try:
-                cleaned_csv = ai_data_translator(user_chat, api_key)
-                ai_df = pd.read_csv(io.StringIO(cleaned_csv))
-                st.success("AI successfully translated your snippet!")
-            except Exception as e:
-                st.error(f"AI Error: {e}")
-
-st.divider()
-
-# 4. FILE UPLOADER & THE "PIPE" REPAIR
+# 2. FILE UPLOADER & THE "PIPE" REPAIR
 uploaded_file = st.file_uploader("Upload your full POS CSV or Excel file", type=["csv", "xlsx"])
 
 df = None
-if ai_df is not None:
-    df = ai_df
-elif uploaded_file:
+if uploaded_file:
     try:
         if uploaded_file.name.endswith('.csv'):
             raw_bytes = uploaded_file.getvalue()
             raw_text = raw_bytes.decode("utf-8-sig", errors="ignore")
             
-            # --- THE FINAL FIX: Detect Pipe (|) or Comma (,) ---
+            # Detect Delimiter (Pipe or Comma)
             first_line = raw_text.split('\n')[0]
             if '|' in first_line:
                 df = pd.read_csv(io.StringIO(raw_text), sep='|')
             else:
                 df = pd.read_csv(io.StringIO(raw_text))
-                # Fallback for "all-in-one-column" comma issues
-                if len(df.columns) == 1 and ',' in str(df.columns[0]):
-                    df = pd.read_csv(io.StringIO(raw_text), sep=',')
         else:
             df = pd.read_excel(uploaded_file)
         
-        # Standardize headers
-        df.columns = [str(c) for c in df.columns]
-        cols = {c.lower().strip(): c for c in df.columns}
-        name_map = {}
-        for c in cols:
-            # Match item, detail, or description
-            if any(x in c for x in ['item', 'product', 'detail', 'description']): name_map[cols[c]] = 'item'
-            # Match qty, count, or sold
-            if any(x in c for x in ['qty', 'quantity', 'sold', 'count']): name_map[cols[c]] = 'quantity'
-            # Match price, rate, or amount
-            if any(x in c for x in ['price', 'rate', 'amount']): name_map[cols[c]] = 'price'
-            # Match date, time, or day
-            if any(x in c for x in ['date', 'time', 'day']): name_map[cols[c]] = 'date'
+        # Standardize headers to lower case strings
+        df.columns = [str(c).lower().strip() for c in df.columns]
         
+        # STRICT MAPPING - This prevents the "not 1-dimensional" error
+        name_map = {}
+        for c in df.columns:
+            if 'product_detail' in c or 'item' in c: name_map[c] = 'item'
+            elif 'transaction_qty' in c or 'quantity' in c: name_map[c] = 'quantity'
+            elif 'unit_price' in c or 'price' in c: name_map[c] = 'price'
+            elif 'transaction_date' in c or 'date' in c: name_map[c] = 'date'
+        
+        # If the map only has some keys, we rename what we found
         df = df.rename(columns=name_map)
         
-        # Clean numeric data
-        for col in ['quantity', 'price']:
-            if col in df.columns:
+        # Ensure we ONLY have the renamed columns to avoid duplicates
+        needed = ['item', 'quantity', 'price']
+        if all(col in df.columns for col in needed):
+            # If multiple columns were renamed to 'item', just take the first one
+            df = df.loc[:, ~df.columns.duplicated()]
+            
+            for col in ['quantity', 'price']:
                 df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
-            else:
-                df[col] = 0
+        else:
+            st.error(f"Missing columns. Found: {list(df.columns)}")
+            df = None
                 
     except Exception as e:
         st.error(f"File Processing Error: {e}")
 
-# 5. PRICING ENGINE
+# 3. PRICING ENGINE
 if df is not None and 'item' in df.columns:
+    # Aggregation
     summary = df.groupby('item').agg({'quantity': 'sum', 'price': 'mean'}).reset_index()
     summary.rename(columns={'item': 'Item Name', 'quantity': 'Units Sold', 'price': 'Current Price'}, inplace=True)
 
     def run_optimization(row):
         current_rev = row['Current Price'] * row['Units Sold']
-        current_dollar = math.floor(row['Current Price'])
         if row['Units Sold'] > 35:
-            suggested = row['Current Price'] + 0.50
-            new_price = current_dollar + 0.99 if math.floor(suggested) > current_dollar else suggested
-            new_price = max(new_price, row['Current Price'])
+            new_price = row['Current Price'] + 0.50
             return new_price, (new_price * row['Units Sold']) - current_rev, 0
         elif row['Units Sold'] < 10:
-            new_price = row['Current Price'] - 0.50
+            new_price = max(0.50, row['Current Price'] - 0.50)
             extra_units = row['Units Sold'] * 0.20 
-            forecasted_qty = row['Units Sold'] + extra_units
-            new_rev = new_price * forecasted_qty
-            if new_rev > current_rev:
-                return new_price, new_rev - current_rev, extra_units
+            new_rev = new_price * (row['Units Sold'] + extra_units)
+            return new_price, max(0, new_rev - current_rev), extra_units
         return row['Current Price'], 0, 0
 
     results = summary.apply(run_optimization, axis=1)
     summary['AI Suggested Price'] = [x[0] for x in results]
     summary['impact_num'] = [x[1] for x in results]
-    summary['Extra Units Needed'] = [x[2] for x in results]
-    summary['Proj. Monthly Gain'] = summary['impact_num'].apply(lambda x: f"+${x:,.0f}" if x > 0 else "$0")
-    summary['Extra Sales Forecast'] = summary['Extra Units Needed'].apply(lambda x: f"+{x:.1f} units" if x > 0 else "—")
+    summary['Proj. Monthly Gain'] = summary['impact_num'].apply(lambda x: f"+${x:,.2f}" if x > 0 else "$0")
 
-    tab1, tab2 = st.tabs(["Pricing Recommendations", "Sales Trends"])
-    with tab1:
-        st.subheader("Pricing Strategy")
-        st.dataframe(summary.drop(columns=['impact_num', 'Extra Units Needed']), use_container_width=True)
-        st.metric(label="Projected Monthly Gain Profit", value=f"+${summary['impact_num'].sum():,.2f} Profit")
-    
-    with tab2:
-        if 'date' in df.columns:
-            df['date'] = pd.to_datetime(df['date'], errors='coerce')
-            df['rev'] = df['quantity'] * df['price']
-            daily = df.groupby('date')['rev'].sum().reset_index()
-            st.subheader("Daily Sales Trends")
-            st.line_chart(daily.set_index('date'))
-        else:
-            st.warning("No date column detected for trends.")
-else:
-    if uploaded_file or ai_df is not None:
-        st.error("Could not find required columns (Item, Price, Quantity). Please check your file headers.")
+    st.subheader("Pricing Strategy")
+    st.dataframe(summary[['Item Name', 'Units Sold', 'Current Price', 'AI Suggested Price', 'Proj. Monthly Gain']], use_container_width=True)
+    st.metric(label="Projected Monthly Gain Profit", value=f"+${summary['impact_num'].sum():,.2f} Profit")
