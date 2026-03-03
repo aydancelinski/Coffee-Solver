@@ -126,3 +126,35 @@ if df is not None and 'item' in df.columns:
         st.metric("Total Items Analyzed", f"{len(summary)}")
 
     st.dataframe(summary[['Item Name', 'Monthly Units Sold', 'Current Price', 'AI Suggested Price', 'Monthly Impact']], use_container_width=True)
+    # 6. DETAILED PROJECT DOCUMENTATION & BIO
+st.divider()
+doc_col1, doc_col2 = st.columns([2, 1])
+
+with doc_col1:
+    st.header("📘 Project Documentation")
+    st.write("""
+    ### Objective
+    The **Celinski Coffee Solver** was developed to bridge the gap between raw Point-of-Sale (POS) data and actionable business strategy. 
+    As an Economics student, I recognized that small business owners often lack the tools to perform complex price elasticity 
+    tests. This application automates that analysis to maximize revenue through data-driven recommendations.
+    
+    ### Key Features
+    * **Hybrid Data Processing**: Utilizes a dual-entry system allowing for both large-scale structured file uploads (CSV/Excel) and unstructured 'messy' text input via an OpenAI-integrated AI Assistant.
+    * **Temporal Normalization**: Automatically detects the date range of imported datasets (up to 10,000+ rows) and normalizes sales volume to a standard 30-day monthly average for accurate forecasting.
+    * **Psychological Pricing Guardrails**: Implements a 'Left-Digit' capping algorithm that ensures price increases (based on high-volume performance) do not cross whole-dollar thresholds, preserving consumer price anchors.
+    * **Universal Data Repair**: A defensive programming layer that identifies and repairs malformed CSV files (Pipe or Comma delimited) and re-maps non-standard headers like 'Product_Detail' or 'Unit_Rate' automatically.
+    """)
+
+with doc_col2:
+    st.header("👤 About the Developer")
+    st.write("""
+    **Aydan P. Celinski** *University of Colorado Boulder* *Economics Major | Business & Spanish Minors*
+    
+    I am a data-focused analyst passionate about using Python and Machine Learning to solve real-world financial problems. 
+    My background combines economic theory with technical execution, including:
+    * **Data Analytics**: Google Data Analytics Professional Certificate candidate.
+    * **Technical Skills**: Python (Pandas, Streamlit), SQL, and API Integration.
+    * **Focus**: Price Optimization, Market Analysis, and Business Automation.
+    
+    [LinkedIn Profile](#) | [GitHub Repository](#)
+    """)
