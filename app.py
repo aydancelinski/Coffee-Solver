@@ -57,7 +57,7 @@ if st.button("Ask Consultant"):
 
 st.divider()
 
-# 4. UNIVERSAL FILE UPLOADER & DEDUPLICATION LOGIC
+# 4. UNIVERSAL FILE UPLOADER & DEEP DATA SCAN
 uploaded_file = st.file_uploader("Upload Coffee POS File (CSV or Excel)", type=["csv", "xlsx"])
 
 df = None
@@ -74,54 +74,55 @@ if uploaded_file:
         
         df.columns = [str(c).lower().strip() for c in df.columns]
         
-        # 🎯 UNIQUE MAPPING: Fixes the "Duplicate Keys" error
+        # 🕵️ DEEP SCAN MAPPING
         name_map = {}
         found_mapped_types = set()
         
-        # Priority 1: Descriptive Item Name (Avoids IDs)
+        # 1. Find Date FIRST (Fixes the 79k error)
         for c in df.columns:
-            if 'item' not in found_mapped_types:
-                if any(x in c for x in ['detail', 'description', 'category']):
-                    name_map[c] = 'item'
-                    found_mapped_types.add('item')
+            if any(x in c for x in ['date', 'time', 'transaction', 'sale']):
+                # Try to force conversion to confirm it's a date
+                temp_dates = pd.to_datetime(df[c], errors='coerce')
+                if temp_dates.dropna().shape[0] > 0:
+                    df['detected_date'] = temp_dates
+                    found_mapped_types.add('date')
                     break
 
-        # Priority 2: Qty, Price, and Date
+        # 2. Map Item, Quantity, and Price
         for c in df.columns:
-            if 'quantity' not in found_mapped_types and any(x in c for x in ['qty', 'quantity', 'sold', 'units']):
+            if 'item' not in found_mapped_types and any(x in c for x in ['detail', 'description', 'category', 'product']):
+                if 'id' not in c:
+                    name_map[c] = 'item'
+                    found_mapped_types.add('item')
+            elif 'quantity' not in found_mapped_types and any(x in c for x in ['qty', 'quantity', 'sold', 'units']):
                 name_map[c] = 'quantity'
                 found_mapped_types.add('quantity')
-            elif 'price' not in found_mapped_types and any(x in c for x in ['price', 'rate']):
+            elif 'price' not in found_mapped_types and any(x in c for x in ['price', 'rate', 'unit']):
                 name_map[c] = 'price'
                 found_mapped_types.add('price')
-            elif 'date' not in found_mapped_types and any(x in c for x in ['date', 'time', 'transaction']):
-                name_map[c] = 'date'
-                found_mapped_types.add('date')
         
         df = df.rename(columns=name_map)
-        
-        # Keep only successfully unique mapped columns
-        keep = [v for v in name_map.values()]
-        df = df[keep]
         
         if all(col in df.columns for col in ['item', 'quantity', 'price']):
             for col in ['quantity', 'price']:
                 df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
             
-            # 🕒 TEMPORAL NORMALIZATION (THE 94K KILLER)
-            if 'date' in df.columns:
-                df['date'] = pd.to_datetime(df['date'], errors='coerce')
-                valid_dates = df['date'].dropna()
-                if not valid_dates.empty:
-                    days_span = (valid_dates.max() - valid_dates.min()).days
-                    # Result for Maven: ~5.9 months
-                    months_in_data = max(1.0, days_span / 30.44)
+            # 🕒 THE NORMALIZATION ANCHOR
+            if 'detected_date' in df.columns:
+                valid_dates = df['detected_date'].dropna()
+                days_span = (valid_dates.max() - valid_dates.min()).days
+                # Correctly normalizes to ~3.0 for your test file or ~5.9 for Maven
+                months_in_data = max(1.0, days_span / 30.44)
+        else:
+            st.error(f"Could not map columns. Found: {list(df.columns)}")
+            df = None
+            
     except Exception as e: st.error(f"File Error: {e}")
 
-# 5. PRICING ENGINE (MONTHLY NORMALIZED MATH)
+# 5. PRICING ENGINE (NORMALIZED MATH)
 if df is not None:
     summary = df.groupby('item').agg({'quantity': 'sum', 'price': 'mean'}).reset_index()
-    # Average units sold over the months collected
+    # Average lifetime volume over the months collected
     summary['Monthly Units Sold'] = (summary['quantity'] / months_in_data).round(0).astype(int)
     summary.rename(columns={'item': 'Item Name', 'price': 'Current Price'}, inplace=True)
 
