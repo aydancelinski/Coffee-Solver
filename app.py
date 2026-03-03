@@ -68,40 +68,38 @@ if uploaded_file:
         if uploaded_file.name.endswith('.csv'):
             raw_bytes = uploaded_file.getvalue()
             raw_text = raw_bytes.decode("utf-8-sig", errors="ignore")
+            # Handle both Pipe and Comma delimiters
             df = pd.read_csv(io.StringIO(raw_text), sep='|' if '|' in raw_text else ',')
         else:
             df = pd.read_excel(uploaded_file)
         
         df.columns = [str(c).lower().strip() for c in df.columns]
         
-        # 🎯 SMART MAPPING & DEDUPLICATION (Fixes "cannot assemble with duplicate keys")
+        # 🎯 BROAD MAPPING: Catches both 'product_detail' and 'Product_Category'
         name_map = {}
-        found_cols = set()
+        found_types = set()
         
-        # Prioritize finding ITEM first
+        # We search specifically for Item/Product first
         for c in df.columns:
-            if 'item' not in found_cols:
-                if any(x in c for x in ['product_detail', 'product_description', 'detail', 'description']):
+            if 'item' not in found_types:
+                if any(x in c for x in ['detail', 'description', 'category', 'product', 'item']) and 'id' not in c:
                     name_map[c] = 'item'
-                    found_cols.add('item')
+                    found_types.add('item')
                     break
         
-        # Then map the rest
+        # Then search for other core metrics
         for c in df.columns:
-            if 'quantity' not in found_cols and any(x in c for x in ['transaction_qty', 'qty', 'quantity', 'sold']):
+            if 'quantity' not in found_types and any(x in c for x in ['qty', 'quantity', 'sold', 'units']):
                 name_map[c] = 'quantity'
-                found_cols.add('quantity')
-            elif 'price' not in found_cols and any(x in c for x in ['unit_price', 'price', 'rate']):
+                found_types.add('quantity')
+            elif 'price' not in found_types and any(x in c for x in ['price', 'rate', 'cost']):
                 name_map[c] = 'price'
-                found_cols.add('price')
-            elif 'date' not in found_cols and any(x in c for x in ['transaction_date', 'date', 'time']):
+                found_types.add('price')
+            elif 'date' not in found_types and any(x in c for x in ['date', 'time', 'transaction', 'sale']):
                 name_map[c] = 'date'
-                found_cols.add('date')
+                found_types.add('date')
         
         df = df.rename(columns=name_map)
-        
-        # Keep only successfully mapped columns
-        df = df[[col for col in name_map.values()]]
         
         if all(col in df.columns for col in ['item', 'quantity', 'price']):
             for col in ['quantity', 'price']:
@@ -113,29 +111,31 @@ if uploaded_file:
                 valid_dates = df['date'].dropna()
                 if not valid_dates.empty:
                     days_span = (valid_dates.max() - valid_dates.min()).days
+                    # Calculate real months collected
                     months_in_data = max(1.0, days_span / 30.44)
         else:
-            st.error("Could not find Item, Quantity, or Price columns.")
+            st.error(f"Could not map columns. Found: {list(df.columns)}")
             df = None
             
     except Exception as e: st.error(f"File Error: {e}")
 
-# 5. PRICING ENGINE
+# 5. PRICING ENGINE (NORMALIZED MATH)
 if df is not None:
     summary = df.groupby('item').agg({'quantity': 'sum', 'price': 'mean'}).reset_index()
+    # Average out lifetime data by the months collected
     summary['Monthly Units Sold'] = (summary['quantity'] / months_in_data).round(0).astype(int)
     summary.rename(columns={'item': 'Item Name', 'price': 'Current Price'}, inplace=True)
 
     def run_optimization(row):
-        p, units = row['Current Price'], row['Monthly Units Sold']
+        p, m_units = row['Current Price'], row['Monthly Units Sold']
         dollar = math.floor(p)
-        if units > 35:
+        if m_units > 35:
             new_p = dollar + 0.99 if math.floor(p + 0.50) > dollar else p + 0.50
-            return new_p, (new_p - p) * units, "Increase"
-        elif units < 10:
+            return new_p, (new_p - p) * m_units, "Increase"
+        elif m_units < 10:
             new_p = max(0.99, p - 0.50)
-            extra = units * 0.20
-            gain = max(0, (new_p * (units + extra)) - (p * units))
+            extra_m = m_units * 0.20
+            gain = max(0, (new_p * (m_units + extra_m)) - (p * m_units))
             return new_p, gain, "Decrease"
         return p, 0, "Hold"
 
@@ -154,7 +154,7 @@ if df is not None:
     )
     st.dataframe(styled_df, use_container_width=True)
 
-# 6. RESTORED DOCUMENTATION & BIO
+# 6. RESTORED EXACT DOCUMENTATION & BIO LAYOUT
 st.divider()
 doc_col1, doc_col2 = st.columns([2, 1])
 
