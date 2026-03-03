@@ -57,7 +57,7 @@ if st.button("Ask Consultant"):
 
 st.divider()
 
-# 4. UNIVERSAL FILE UPLOADER
+# 4. UNIVERSAL FILE UPLOADER - UPDATED MAPPING
 uploaded_file = st.file_uploader("Upload Coffee POS File (CSV or Excel)", type=["csv", "xlsx"])
 
 df = None
@@ -68,47 +68,47 @@ if uploaded_file:
         if uploaded_file.name.endswith('.csv'):
             raw_bytes = uploaded_file.getvalue()
             raw_text = raw_bytes.decode("utf-8-sig", errors="ignore")
-            # Forced delimiter check to prevent parsing errors
+            # Maven uses pipe (|)
             df = pd.read_csv(io.StringIO(raw_text), sep='|' if '|' in raw_text else ',')
         else:
             df = pd.read_excel(uploaded_file)
         
         df.columns = [str(c).lower().strip() for c in df.columns]
         
-        # 🎯 SMART MAPPING: Prioritize Detail/Description for Item Names
+        # 🎯 EXPLICIT MAPPING FOR MAVEN HEADERS
         name_map = {}
         for c in df.columns:
-            if any(x in c for x in ['detail', 'description']):
+            # Item Name logic
+            if any(x in c for x in ['product_detail', 'product_description', 'detail', 'description']):
                 name_map[c] = 'item'
-                break
-        if 'item' not in name_map.values():
-            for c in df.columns:
-                if any(x in c for x in ['product', 'item']) and 'id' not in c:
-                    name_map[c] = 'item'
-                    break
-
-        for c in df.columns:
-            if any(x in c for x in ['qty', 'quantity', 'sold']): name_map[c] = 'quantity'
-            if any(x in c for x in ['price', 'rate']): name_map[c] = 'price'
-            if any(x in c for x in ['date', 'time', 'transaction']): name_map[c] = 'date'
+            # Quantity logic
+            if any(x in c for x in ['transaction_qty', 'qty', 'quantity', 'sold']):
+                name_map[c] = 'quantity'
+            # Price logic
+            if any(x in c for x in ['unit_price', 'price', 'rate']):
+                name_map[c] = 'price'
+            # Date logic
+            if any(x in c for x in ['transaction_date', 'date', 'time']):
+                name_map[c] = 'date'
         
         df = df.rename(columns=name_map)
         
-        # Clean numeric columns
-        if all(col in df.columns for col in ['item', 'quantity', 'price']):
+        # Fallback if mapping missed something
+        required = ['item', 'quantity', 'price']
+        if all(col in df.columns for col in required):
             for col in ['quantity', 'price']:
                 df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
             
-            # 🕒 THE 94K FIX: FIND DATES AND DIVIDE
+            # 🕒 TEMPORAL NORMALIZATION (THE 94K KILLER)
             if 'date' in df.columns:
                 df['date'] = pd.to_datetime(df['date'], errors='coerce')
                 valid_dates = df['date'].dropna()
                 if not valid_dates.empty:
                     days_span = (valid_dates.max() - valid_dates.min()).days
-                    # Calculate real months; if the span is 0 (one day), default to 1.0
+                    # For Maven, this should result in ~5.9 months
                     months_in_data = max(1.0, days_span / 30.44)
         else:
-            st.error("Could not map columns correctly.")
+            st.error(f"Mapping failed. Columns found: {list(df.columns)}")
             df = None
             
     except Exception as e: st.error(f"File Error: {e}")
@@ -116,7 +116,7 @@ if uploaded_file:
 # 5. PRICING ENGINE
 if df is not None:
     summary = df.groupby('item').agg({'quantity': 'sum', 'price': 'mean'}).reset_index()
-    # Average out lifetime volume over the months collected
+    # Normalize units sold immediately
     summary['Monthly Units Sold'] = (summary['quantity'] / months_in_data).round(0).astype(int)
     summary.rename(columns={'item': 'Item Name', 'price': 'Current Price'}, inplace=True)
 
@@ -148,7 +148,7 @@ if df is not None:
     )
     st.dataframe(styled_df, use_container_width=True)
 
-# 6. EXACT DOCUMENTATION & BIO FROM SCREENSHOT
+# 6. RESTORED DOCUMENTATION & BIO
 st.divider()
 doc_col1, doc_col2 = st.columns([2, 1])
 
