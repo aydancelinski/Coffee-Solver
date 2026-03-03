@@ -178,7 +178,7 @@ with doc_col1:
 with doc_col2:
     st.header("About the Developer")
     st.write("""
-    **Aydan P. Celinski** | *Third Year Economics Student at the University of Colorado Boulder*
+    **Aydan P. Celinski** | *Third Year Economics Student at the University of Colorado Boulder with Minors in Business and Spanish*
     
     * **Specialization**: Price Optimization, Market Analysis, and Business Automation.
     * **Technical Skills**: Python (Pandas, Streamlit), SQL, and API Integration.
