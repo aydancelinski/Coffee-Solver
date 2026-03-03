@@ -63,7 +63,8 @@ if st.button("Ask Consultant"):
         with st.spinner("Consulting Economic Theory..."):
             try:
                 answer = ai_strategy_consultant(user_query, api_key)
-                st.markdown(f text="> **Consultant's Insight:** {answer}")
+                # FIXED: Removed the 'text=' parameter to fix the SyntaxError
+                st.markdown(f"> **Consultant's Insight:** {answer}")
             except Exception as e:
                 st.error(f"AI Error: {e}")
 
@@ -133,6 +134,7 @@ if df is not None and 'item' in df.columns:
 
     results = summary.apply(run_optimization, axis=1)
     summary['AI Suggested Price'] = [x[0] for x in results]
+    # Rounding fix to prevent AttributeError
     summary['Monthly Impact'] = [round(float(x[1]), 2) for x in results]
     summary['Strategy'] = [x[2] for x in results]
     summary['Proj. Monthly Gain'] = summary['Monthly Impact'].apply(lambda x: f"+${x:,.2f}" if x > 0 else "$0")
