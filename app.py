@@ -74,7 +74,7 @@ if uploaded_file:
         
         df.columns = [str(c).lower().strip() for c in df.columns]
         
-        # 🕵️ DEEP MAPPING: Highly aggressive for "Better Formatted" data
+        # 🕵️ DEEP SCAN MAPPING
         name_map = {}
         found_mapped = set()
         
@@ -87,7 +87,7 @@ if uploaded_file:
                     found_mapped.add('date')
                     break
 
-        # 2. CATEGORY/PRODUCT SCAN
+        # 2. ITEM/PRODUCT SCAN
         for c in df.columns:
             if 'item' not in found_mapped:
                 if any(x in c for x in ['product', 'item', 'category', 'detail', 'description']):
@@ -111,7 +111,7 @@ if uploaded_file:
             for col in ['quantity', 'price']:
                 df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
             
-            # 🕒 NORMALIZATION
+            # 🕒 TEMPORAL NORMALIZATION
             if 'date' in found_mapped:
                 valid_dates = df['detected_date'].dropna()
                 days_span = (valid_dates.max() - valid_dates.min()).days
@@ -156,7 +156,7 @@ if df is not None:
     )
     st.dataframe(styled_df, use_container_width=True)
 
-# 6. RESTORED EXACT DOCUMENTATION & BIO
+# 6. UPDATED OBJECTIVE & BIO
 st.divider()
 doc_col1, doc_col2 = st.columns([2, 1])
 
