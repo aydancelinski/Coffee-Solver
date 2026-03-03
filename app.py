@@ -131,7 +131,7 @@ st.divider()
 doc_col1, doc_col2 = st.columns([2, 1])
 
 with doc_col1:
-    st.header("📘 Project Documentation")
+    st.header("Project Documentation")
     st.write("""
     ### Objective
     The **Celinski Coffee Solver** was developed to bridge the gap between raw Point-of-Sale (POS) data and actionable business strategy. 
@@ -146,15 +146,14 @@ with doc_col1:
     """)
 
 with doc_col2:
-    st.header("👤 About the Developer")
+    st.header(" About the Developer")
     st.write("""
     **Aydan P. Celinski** *University of Colorado Boulder* *Economics Major | Business & Spanish Minors*
     
     I am a data-focused analyst passionate about using Python and Machine Learning to solve real-world financial problems. 
     My background combines economic theory with technical execution, including:
-    * **Data Analytics**: Google Data Analytics Professional Certificate candidate.
     * **Technical Skills**: Python (Pandas, Streamlit), SQL, and API Integration.
     * **Focus**: Price Optimization, Market Analysis, and Business Automation.
     
-    [LinkedIn Profile](#) | [GitHub Repository](#)
+    [LinkedIn Profile](https://www.linkedin.com/in/aydan-celinski-a35738299/)
     """)
