@@ -68,42 +68,55 @@ if uploaded_file:
         if uploaded_file.name.endswith('.csv'):
             raw_bytes = uploaded_file.getvalue()
             raw_text = raw_bytes.decode("utf-8-sig", errors="ignore")
+            # Forced delimiter check to prevent parsing errors
             df = pd.read_csv(io.StringIO(raw_text), sep='|' if '|' in raw_text else ',')
         else:
             df = pd.read_excel(uploaded_file)
         
         df.columns = [str(c).lower().strip() for c in df.columns]
         
-        # Mapping Logic - Prioritizing Names over IDs
+        # 🎯 SMART MAPPING: Prioritize Detail/Description for Item Names
         name_map = {}
         for c in df.columns:
-            if any(x in c for x in ['detail', 'description']): name_map[c] = 'item'
-            elif 'item' not in name_map.values() and any(x in c for x in ['product', 'item']) and 'id' not in c:
+            if any(x in c for x in ['detail', 'description']):
                 name_map[c] = 'item'
+                break
+        if 'item' not in name_map.values():
+            for c in df.columns:
+                if any(x in c for x in ['product', 'item']) and 'id' not in c:
+                    name_map[c] = 'item'
+                    break
+
+        for c in df.columns:
             if any(x in c for x in ['qty', 'quantity', 'sold']): name_map[c] = 'quantity'
             if any(x in c for x in ['price', 'rate']): name_map[c] = 'price'
-            if any(x in c for x in ['date', 'time']): name_map[c] = 'date'
+            if any(x in c for x in ['date', 'time', 'transaction']): name_map[c] = 'date'
         
         df = df.rename(columns=name_map)
-        df = df.loc[:, ~df.columns.duplicated(keep='last')]
         
+        # Clean numeric columns
         if all(col in df.columns for col in ['item', 'quantity', 'price']):
             for col in ['quantity', 'price']:
                 df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
             
-            # NORMALIZATION: Calculate the amount of months the data was collected over
+            # 🕒 THE 94K FIX: FIND DATES AND DIVIDE
             if 'date' in df.columns:
                 df['date'] = pd.to_datetime(df['date'], errors='coerce')
                 valid_dates = df['date'].dropna()
                 if not valid_dates.empty:
                     days_span = (valid_dates.max() - valid_dates.min()).days
+                    # Calculate real months; if the span is 0 (one day), default to 1.0
                     months_in_data = max(1.0, days_span / 30.44)
+        else:
+            st.error("Could not map columns correctly.")
+            df = None
+            
     except Exception as e: st.error(f"File Error: {e}")
 
 # 5. PRICING ENGINE
 if df is not None:
     summary = df.groupby('item').agg({'quantity': 'sum', 'price': 'mean'}).reset_index()
-    # Average out over the months
+    # Average out lifetime volume over the months collected
     summary['Monthly Units Sold'] = (summary['quantity'] / months_in_data).round(0).astype(int)
     summary.rename(columns={'item': 'Item Name', 'price': 'Current Price'}, inplace=True)
 
@@ -135,7 +148,7 @@ if df is not None:
     )
     st.dataframe(styled_df, use_container_width=True)
 
-# 6. RESTORED EXACT DOCUMENTATION & BIO LAYOUT
+# 6. EXACT DOCUMENTATION & BIO FROM SCREENSHOT
 st.divider()
 doc_col1, doc_col2 = st.columns([2, 1])
 
@@ -165,4 +178,4 @@ with doc_col2:
     """)
     st.write("* **Technical Skills**: Python (Pandas, Streamlit), SQL, and API Integration.")
     st.write("* **Focus**: Price Optimization, Market Analysis, and Business Automation.")
-    st.write(f"[LinkedIn Profile](https://www.linkedin.com/in/aydan-celinski-a35738299/)")
+    st.markdown(f"[LinkedIn Profile](https://www.linkedin.com/in/aydan-celinski-a35738299/)")
