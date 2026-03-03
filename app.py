@@ -57,7 +57,7 @@ if st.button("Ask Consultant"):
 
 st.divider()
 
-# 4. UNIVERSAL FILE UPLOADER - UPDATED MAPPING
+# 4. UNIVERSAL FILE UPLOADER
 uploaded_file = st.file_uploader("Upload Coffee POS File (CSV or Excel)", type=["csv", "xlsx"])
 
 df = None
@@ -68,34 +68,42 @@ if uploaded_file:
         if uploaded_file.name.endswith('.csv'):
             raw_bytes = uploaded_file.getvalue()
             raw_text = raw_bytes.decode("utf-8-sig", errors="ignore")
-            # Maven uses pipe (|)
             df = pd.read_csv(io.StringIO(raw_text), sep='|' if '|' in raw_text else ',')
         else:
             df = pd.read_excel(uploaded_file)
         
         df.columns = [str(c).lower().strip() for c in df.columns]
         
-        # 🎯 EXPLICIT MAPPING FOR MAVEN HEADERS
+        # 🎯 SMART MAPPING & DEDUPLICATION (Fixes "cannot assemble with duplicate keys")
         name_map = {}
+        found_cols = set()
+        
+        # Prioritize finding ITEM first
         for c in df.columns:
-            # Item Name logic
-            if any(x in c for x in ['product_detail', 'product_description', 'detail', 'description']):
-                name_map[c] = 'item'
-            # Quantity logic
-            if any(x in c for x in ['transaction_qty', 'qty', 'quantity', 'sold']):
+            if 'item' not in found_cols:
+                if any(x in c for x in ['product_detail', 'product_description', 'detail', 'description']):
+                    name_map[c] = 'item'
+                    found_cols.add('item')
+                    break
+        
+        # Then map the rest
+        for c in df.columns:
+            if 'quantity' not in found_cols and any(x in c for x in ['transaction_qty', 'qty', 'quantity', 'sold']):
                 name_map[c] = 'quantity'
-            # Price logic
-            if any(x in c for x in ['unit_price', 'price', 'rate']):
+                found_cols.add('quantity')
+            elif 'price' not in found_cols and any(x in c for x in ['unit_price', 'price', 'rate']):
                 name_map[c] = 'price'
-            # Date logic
-            if any(x in c for x in ['transaction_date', 'date', 'time']):
+                found_cols.add('price')
+            elif 'date' not in found_cols and any(x in c for x in ['transaction_date', 'date', 'time']):
                 name_map[c] = 'date'
+                found_cols.add('date')
         
         df = df.rename(columns=name_map)
         
-        # Fallback if mapping missed something
-        required = ['item', 'quantity', 'price']
-        if all(col in df.columns for col in required):
+        # Keep only successfully mapped columns
+        df = df[[col for col in name_map.values()]]
+        
+        if all(col in df.columns for col in ['item', 'quantity', 'price']):
             for col in ['quantity', 'price']:
                 df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
             
@@ -105,10 +113,9 @@ if uploaded_file:
                 valid_dates = df['date'].dropna()
                 if not valid_dates.empty:
                     days_span = (valid_dates.max() - valid_dates.min()).days
-                    # For Maven, this should result in ~5.9 months
                     months_in_data = max(1.0, days_span / 30.44)
         else:
-            st.error(f"Mapping failed. Columns found: {list(df.columns)}")
+            st.error("Could not find Item, Quantity, or Price columns.")
             df = None
             
     except Exception as e: st.error(f"File Error: {e}")
@@ -116,7 +123,6 @@ if uploaded_file:
 # 5. PRICING ENGINE
 if df is not None:
     summary = df.groupby('item').agg({'quantity': 'sum', 'price': 'mean'}).reset_index()
-    # Normalize units sold immediately
     summary['Monthly Units Sold'] = (summary['quantity'] / months_in_data).round(0).astype(int)
     summary.rename(columns={'item': 'Item Name', 'price': 'Current Price'}, inplace=True)
 
