@@ -45,7 +45,7 @@ def ai_data_translator(user_input, key):
     return response.choices[0].message.content
 
 st.subheader("💬 AI Data Assistant")
-user_chat = st.text_area("Copy and paste messy sales data from CSV file")
+user_chat = st.text_area("Paste small snippets of messy data here (limit 20-30 rows):")
 
 ai_df = None
 if st.button("Process with AI"):
@@ -62,7 +62,7 @@ if st.button("Process with AI"):
 
 st.divider()
 
-# 4. FILE UPLOADER & UNIVERSAL REPAIR
+# 4. FILE UPLOADER & UNIVERSAL REPAIR (WITH FORCE SPLITTER)
 uploaded_file = st.file_uploader("OR Upload a POS CSV or Excel file", type=["csv", "xlsx"])
 
 df = None
@@ -71,14 +71,22 @@ if ai_df is not None:
 elif uploaded_file:
     try:
         if uploaded_file.name.endswith('.csv'):
-            raw_text = uploaded_file.getvalue().decode("utf-8-sig", errors="ignore")
+            raw_bytes = uploaded_file.getvalue()
+            raw_text = raw_bytes.decode("utf-8-sig", errors="ignore")
             df = pd.read_csv(io.StringIO(raw_text))
-            if len(df.columns) == 1 and ',' in str(df.columns[0]):
-                df = pd.read_csv(io.StringIO(raw_text), sep=',')
+            
+            # --- THE FORCE SPLITTER FIX ---
+            # If Excel put everything in one column (A1), split it
+            if len(df.columns) == 1:
+                col_name = str(df.columns[0])
+                if ',' in col_name:
+                    df = pd.read_csv(io.StringIO(raw_text), sep=',')
         else:
             df = pd.read_excel(uploaded_file)
         
+        # Ensure all column headers are strings to prevent 'int' lower() error
         df.columns = [str(c) for c in df.columns]
+
         cols = {c.lower().strip(): c for c in df.columns}
         name_map = {}
         for c in cols:
@@ -88,13 +96,18 @@ elif uploaded_file:
             if any(x in c for x in ['date', 'time', 'day']): name_map[cols[c]] = 'date'
         
         df = df.rename(columns=name_map)
+        
+        # Final numeric cleaning
         for col in ['quantity', 'price']:
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+            else:
+                df[col] = 0
+                
     except Exception as e:
-        st.error(f"File Error: {e}")
+        st.error(f"File processing error: {e}")
 
-# 5. PRICING ENGINE (REMAINS THE SAME)
+# 5. PRICING ENGINE
 if df is not None and 'item' in df.columns:
     summary = df.groupby('item').agg({'quantity': 'sum', 'price': 'mean'}).reset_index()
     summary.rename(columns={'item': 'Item Name', 'quantity': 'Units Sold', 'price': 'Current Price'}, inplace=True)
@@ -128,3 +141,16 @@ if df is not None and 'item' in df.columns:
         st.subheader("Pricing Strategy")
         st.dataframe(summary.drop(columns=['impact_num', 'Extra Units Needed']), use_container_width=True)
         st.metric(label="Projected Monthly Gain Profit", value=f"+${summary['impact_num'].sum():,.2f} Profit")
+    
+    with tab2:
+        if 'date' in df.columns:
+            df['date'] = pd.to_datetime(df['date'], errors='coerce')
+            df['rev'] = df['quantity'] * df['price']
+            daily = df.groupby('date')['rev'].sum().reset_index()
+            st.subheader("Daily Sales Trends")
+            st.line_chart(daily.set_index('date'))
+        else:
+            st.warning("No date column detected for trends.")
+else:
+    if uploaded_file or ai_df is not None:
+        st.error("Could not find required columns (Item, Price, Quantity). Please check your file headers.")
