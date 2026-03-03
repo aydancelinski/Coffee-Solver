@@ -63,7 +63,6 @@ if st.button("Ask Consultant"):
         with st.spinner("Consulting Economic Theory..."):
             try:
                 answer = ai_strategy_consultant(user_query, api_key)
-                # FIXED: Removed the 'text=' parameter to fix the SyntaxError
                 st.markdown(f"> **Consultant's Insight:** {answer}")
             except Exception as e:
                 st.error(f"AI Error: {e}")
@@ -87,15 +86,28 @@ if uploaded_file:
             df = pd.read_excel(uploaded_file)
         
         df.columns = [str(c).lower().strip() for c in df.columns]
+        
+        # IMPROVED MAPPING: Prioritize Detail over ID to avoid numbers in Item Name
         name_map = {}
         for c in df.columns:
-            if any(x in c for x in ['detail', 'item', 'product']): name_map[c] = 'item'
+            # We look for specific "Description" or "Detail" keywords first
+            if any(x in c for x in ['detail', 'description']): 
+                name_map[c] = 'item'
+            # Only map 'product' or 'item' if 'item' isn't already assigned
+            elif 'item' not in name_map.values() and any(x in c for x in ['product', 'item']):
+                # Skip 'product_id' if possible
+                if 'id' not in c:
+                    name_map[c] = 'item'
+            
             if any(x in c for x in ['qty', 'quantity', 'sold', 'count']): name_map[c] = 'quantity'
             if any(x in c for x in ['price', 'rate', 'unit_price']): name_map[c] = 'price'
             if any(x in c for x in ['date', 'time']): name_map[c] = 'date'
         
         df = df.rename(columns=name_map)
-        df = df.loc[:, ~df.columns.duplicated()]
+        # Keep only the columns we successfully mapped
+        df = df.loc[:, df.columns.isin(['item', 'quantity', 'price', 'date'])]
+        # If 'item' appears twice, keep the last one (usually the most detailed)
+        df = df.loc[:, ~df.columns.duplicated(keep='last')]
         
         if all(col in df.columns for col in ['item', 'quantity', 'price']):
             for col in ['quantity', 'price']:
@@ -106,7 +118,7 @@ if uploaded_file:
                 days_span = (df['date'].max() - df['date'].min()).days
                 months_in_data = max(1, days_span / 30.44) 
         else:
-            st.error("Missing required columns.")
+            st.error("Missing required columns. Please check your file headers.")
             df = None
     except Exception as e:
         st.error(f"File Error: {e}")
@@ -134,7 +146,6 @@ if df is not None and 'item' in df.columns:
 
     results = summary.apply(run_optimization, axis=1)
     summary['AI Suggested Price'] = [x[0] for x in results]
-    # Rounding fix to prevent AttributeError
     summary['Monthly Impact'] = [round(float(x[1]), 2) for x in results]
     summary['Strategy'] = [x[2] for x in results]
     summary['Proj. Monthly Gain'] = summary['Monthly Impact'].apply(lambda x: f"+${x:,.2f}" if x > 0 else "$0")
