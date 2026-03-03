@@ -166,7 +166,7 @@ if df is not None and 'item' in df.columns:
 st.divider()
 doc_col1, doc_col2 = st.columns([2, 1])
 with doc_col1:
-    st.header("📘 Project Documentation")
+    st.header("Project Documentation")
     st.write("""
     ### Objective
     Developed by an Economics student to automate price elasticity analysis for small businesses.
@@ -176,7 +176,7 @@ with doc_col1:
     * **Universal Repair**: Automatically handles Pipe (|) and Comma (,) delimited POS exports.
     """)
 with doc_col2:
-    st.header("👤 About the Developer")
+    st.header("About the Developer")
     st.write("""
     **Aydan P. Celinski** | *Third Year Economics Student at the University of Colorado Boulder*
     
