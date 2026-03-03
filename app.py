@@ -30,14 +30,14 @@ st.markdown("""
 
 # 2. SIDEBAR - API SECURITY
 st.sidebar.header("🔑 API Configuration")
-api_key = st.sidebar.text_input("Enter OpenAI API Key", type="password", help="Needed for the AI Assistant.")
+api_key = st.sidebar.text_input("Enter OpenAI API Key", type="password", help="Needed for AI snippets.")
 
 st.title("Celinski's Coffee Solver »")
 
-# 3. AI CHAT ASSISTANT LOGIC
+# 3. AI CHAT ASSISTANT (Best for small snippets, 15-20 rows max)
 def ai_data_translator(user_input, key):
     client = openai.OpenAI(api_key=key)
-    system_prompt = "Convert any messy text provided into a valid CSV format with headers: item, quantity, price, date. Only return CSV text."
+    system_prompt = "Convert messy text into a CSV with headers: item, quantity, price, date. Only return CSV text."
     response = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_input}]
@@ -45,25 +45,25 @@ def ai_data_translator(user_input, key):
     return response.choices[0].message.content
 
 st.subheader("💬 AI Data Assistant")
-user_chat = st.text_area("Paste small snippets of messy data here (limit 20-30 rows):")
+user_chat = st.text_area("Paste small snippets of messy data here (limit 20 rows):")
 
 ai_df = None
 if st.button("Process with AI"):
     if not api_key:
-        st.warning("Please enter your OpenAI API key in the sidebar.")
+        st.warning("Enter your OpenAI key in the sidebar.")
     elif user_chat:
         with st.spinner("AI is translating..."):
             try:
                 cleaned_csv = ai_data_translator(user_chat, api_key)
                 ai_df = pd.read_csv(io.StringIO(cleaned_csv))
-                st.success("AI successfully translated your data!")
+                st.success("AI successfully translated your snippet!")
             except Exception as e:
                 st.error(f"AI Error: {e}")
 
 st.divider()
 
-# 4. FILE UPLOADER & UNIVERSAL REPAIR (WITH FORCE SPLITTER)
-uploaded_file = st.file_uploader("OR Upload a POS CSV or Excel file", type=["csv", "xlsx"])
+# 4. FILE UPLOADER & UNIVERSAL REPAIR (FOR FULL EXCEL FILES)
+uploaded_file = st.file_uploader("OR Upload your full POS CSV or Excel file", type=["csv", "xlsx"])
 
 df = None
 if ai_df is not None:
@@ -76,17 +76,14 @@ elif uploaded_file:
             df = pd.read_csv(io.StringIO(raw_text))
             
             # --- THE FORCE SPLITTER FIX ---
-            # If Excel put everything in one column (A1), split it
+            # If data is stuck in one column (Column A), split it by the comma
             if len(df.columns) == 1:
-                col_name = str(df.columns[0])
-                if ',' in col_name:
-                    df = pd.read_csv(io.StringIO(raw_text), sep=',')
+                df = pd.read_csv(io.StringIO(raw_text), sep=',')
         else:
             df = pd.read_excel(uploaded_file)
         
-        # Ensure all column headers are strings to prevent 'int' lower() error
+        # Standardize all headers
         df.columns = [str(c) for c in df.columns]
-
         cols = {c.lower().strip(): c for c in df.columns}
         name_map = {}
         for c in cols:
@@ -97,15 +94,13 @@ elif uploaded_file:
         
         df = df.rename(columns=name_map)
         
-        # Final numeric cleaning
+        # Numeric cleanup
         for col in ['quantity', 'price']:
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
-            else:
-                df[col] = 0
                 
     except Exception as e:
-        st.error(f"File processing error: {e}")
+        st.error(f"File Processing Error: {e}")
 
 # 5. PRICING ENGINE
 if df is not None and 'item' in df.columns:
