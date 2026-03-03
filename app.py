@@ -87,36 +87,38 @@ if uploaded_file:
         
         df.columns = [str(c).lower().strip() for c in df.columns]
         
-        # IMPROVED MAPPING: Prioritize Detail over ID to avoid numbers in Item Name
+        # MAPPING LOGIC: Prioritize Descriptive Names and ensure Date is captured
         name_map = {}
         for c in df.columns:
-            # We look for specific "Description" or "Detail" keywords first
             if any(x in c for x in ['detail', 'description']): 
                 name_map[c] = 'item'
-            # Only map 'product' or 'item' if 'item' isn't already assigned
-            elif 'item' not in name_map.values() and any(x in c for x in ['product', 'item']):
-                # Skip 'product_id' if possible
-                if 'id' not in c:
-                    name_map[c] = 'item'
+            elif 'item' not in name_map.values() and any(x in c for x in ['product', 'item']) and 'id' not in c:
+                name_map[c] = 'item'
             
             if any(x in c for x in ['qty', 'quantity', 'sold', 'count']): name_map[c] = 'quantity'
             if any(x in c for x in ['price', 'rate', 'unit_price']): name_map[c] = 'price'
             if any(x in c for x in ['date', 'time']): name_map[c] = 'date'
         
         df = df.rename(columns=name_map)
-        # Keep only the columns we successfully mapped
-        df = df.loc[:, df.columns.isin(['item', 'quantity', 'price', 'date'])]
-        # If 'item' appears twice, keep the last one (usually the most detailed)
+        
+        # Ensure only the necessary columns stay to prevent duplicate/id confusion
+        needed_cols = ['item', 'quantity', 'price', 'date']
+        df = df[[col for col in needed_cols if col in df.columns]]
         df = df.loc[:, ~df.columns.duplicated(keep='last')]
         
         if all(col in df.columns for col in ['item', 'quantity', 'price']):
             for col in ['quantity', 'price']:
                 df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
             
+            # 🕒 RESTORED TIME NORMALIZATION
             if 'date' in df.columns:
                 df['date'] = pd.to_datetime(df['date'], errors='coerce')
-                days_span = (df['date'].max() - df['date'].min()).days
-                months_in_data = max(1, days_span / 30.44) 
+                # Filter out null dates if any
+                valid_dates = df['date'].dropna()
+                if not valid_dates.empty:
+                    days_span = (valid_dates.max() - valid_dates.min()).days
+                    # Calculate real month count
+                    months_in_data = max(1, days_span / 30.44) 
         else:
             st.error("Missing required columns. Please check your file headers.")
             df = None
@@ -126,6 +128,7 @@ if uploaded_file:
 # 5. PRICING ENGINE WITH FORMATTING & ROUNDING
 if df is not None and 'item' in df.columns:
     summary = df.groupby('item').agg({'quantity': 'sum', 'price': 'mean'}).reset_index()
+    # Normalize quantity by the calculated months
     summary['Monthly Units Sold'] = (summary['quantity'] / months_in_data).round(0).astype(int)
     summary.rename(columns={'item': 'Item Name', 'price': 'Current Price'}, inplace=True)
 
@@ -166,7 +169,7 @@ if df is not None and 'item' in df.columns:
 st.divider()
 doc_col1, doc_col2 = st.columns([2, 1])
 with doc_col1:
-    st.header("Project Documentation")
+    st.header("📘 Project Documentation")
     st.write("""
     ### Objective
     Developed by an Economics student to automate price elasticity analysis for small businesses.
@@ -176,9 +179,9 @@ with doc_col1:
     * **Universal Repair**: Automatically handles Pipe (|) and Comma (,) delimited POS exports.
     """)
 with doc_col2:
-    st.header("About the Developer")
+    st.header("👤 About the Developer")
     st.write("""
-    **Aydan P. Celinski** | *Third Year Economics Student at the University of Colorado Boulder with Minors in Business and Spanish*
+    **Aydan P. Celinski** | *Third Year Economics Student at the University of Colorado Boulder*
     
     * **Specialization**: Price Optimization, Market Analysis, and Business Automation.
     * **Technical Skills**: Python (Pandas, Streamlit), SQL, and API Integration.
