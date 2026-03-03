@@ -28,7 +28,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# 2. SIDEBAR - API SECURITY
+# 2. SIDEBAR
 st.sidebar.header("🔑 AI Consultant Setup")
 api_key = st.sidebar.text_input("Enter OpenAI API Key", type="password")
 
@@ -37,14 +37,7 @@ st.title("Celinski's Coffee Solver »")
 # 3. STRATEGIC AI CONSULTANT
 def ai_strategy_consultant(user_query, key):
     client = openai.OpenAI(api_key=key)
-    system_prompt = """
-    You are an Economic Strategy Consultant for 'Celinski Coffee Solver'. 
-    Explain pricing decisions using economic theory:
-    - We use $0.50 buckets to test elasticity.
-    - We cap prices at $0.99 for 'Left-Digit' anchors.
-    - High volume (>35/mo) is inelastic.
-    - Low volume (<10/mo) tests price sensitivity.
-    """
+    system_prompt = "You are an Economic Strategy Consultant. Explain pricing using Elasticity and Left-Digit anchors."
     response = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_query}]
@@ -81,7 +74,7 @@ if uploaded_file:
         
         df.columns = [str(c).lower().strip() for c in df.columns]
         
-        # Mapping Logic
+        # Mapping Logic - Prioritizing Names over IDs
         name_map = {}
         for c in df.columns:
             if any(x in c for x in ['detail', 'description']): name_map[c] = 'item'
@@ -98,7 +91,7 @@ if uploaded_file:
             for col in ['quantity', 'price']:
                 df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
             
-            # 🕒 THE 94K FIX: DIVIDE BY AMOUNT OF MONTHS
+            # NORMALIZATION: Calculate the amount of months the data was collected over
             if 'date' in df.columns:
                 df['date'] = pd.to_datetime(df['date'], errors='coerce')
                 valid_dates = df['date'].dropna()
@@ -107,11 +100,10 @@ if uploaded_file:
                     months_in_data = max(1.0, days_span / 30.44)
     except Exception as e: st.error(f"File Error: {e}")
 
-# 5. PRICING ENGINE (NORMALIZED MATH)
+# 5. PRICING ENGINE
 if df is not None:
     summary = df.groupby('item').agg({'quantity': 'sum', 'price': 'mean'}).reset_index()
-    
-    # DIVIDE BY MONTHS COLLECTED
+    # Average out over the months
     summary['Monthly Units Sold'] = (summary['quantity'] / months_in_data).round(0).astype(int)
     summary.rename(columns={'item': 'Item Name', 'price': 'Current Price'}, inplace=True)
 
@@ -143,19 +135,34 @@ if df is not None:
     )
     st.dataframe(styled_df, use_container_width=True)
 
-# 6. RESTORED DOCUMENTATION & BIO
+# 6. RESTORED EXACT DOCUMENTATION & BIO LAYOUT
 st.divider()
 doc_col1, doc_col2 = st.columns([2, 1])
+
 with doc_col1:
     st.header("Project Documentation")
     st.subheader("Objective")
-    st.write("Developed to bridge the gap between raw POS data and actionable strategy using economic theory.")
+    st.write("""
+    The Celinski Coffee Solver was developed to bridge the gap between raw Point-of-Sale (POS) data and actionable business strategy. 
+    As an Economics student, I recognized that small business owners often lack the tools to perform complex price elasticity 
+    tests. This application automates that analysis to maximize revenue through data-driven recommendations.
+    """)
     st.subheader("Key Features")
-    st.write("* **Temporal Normalization**: Divides lifetime volume by the months collected for accurate 30-day forecasting.")
-    st.write("* **Psychological Pricing**: Left-Digit caps to preserve consumer anchors.")
+    st.write("""
+    * **Hybrid Data Processing**: Utilizes a dual-entry system allowing for both large-scale structured file uploads (CSV/Excel) and unstructured 'messy' text input via an OpenAI-integrated AI Assistant.
+    * **Temporal Normalization**: Automatically detects the date range of imported datasets (up to 10,000+ rows) and normalizes sales volume to a standard 30-day monthly average for accurate forecasting.
+    * **Psychological Pricing Guardrails**: Implements a 'Left-Digit' capping algorithm that ensures price increases (based on high-volume performance) do not cross whole-dollar thresholds, preserving consumer price anchors.
+    * **Universal Data Repair**: A defensive programming layer that identifies and repairs malformed CSV files (Pipe or Comma delimited) and re-maps non-standard headers like 'Product_Detail' or 'Unit_Rate' automatically.
+    """)
 
 with doc_col2:
     st.header("About the Developer")
     st.write(f"**Aydan P. Celinski** *University of Colorado Boulder*")
     st.write(f"*Third Year Economics Student | Business & Spanish Minors*")
-    st.markdown(f"[LinkedIn Profile](https://www.linkedin.com/in/aydan-celinski-a35738299/)")
+    st.write("""
+    I am a data-focused analyst passionate about using Python and Machine Learning to solve real-world 
+    financial problems. My background combines economic theory with technical execution, including:
+    """)
+    st.write("* **Technical Skills**: Python (Pandas, Streamlit), SQL, and API Integration.")
+    st.write("* **Focus**: Price Optimization, Market Analysis, and Business Automation.")
+    st.write(f"[LinkedIn Profile](https://www.linkedin.com/in/aydan-celinski-a35738299/)")
