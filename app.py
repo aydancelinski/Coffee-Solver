@@ -74,8 +74,9 @@ if uploaded_file:
         
         df.columns = [str(c).lower().strip() for c in df.columns]
         
-        # 🎯 TARGETED MAPPING: Using the headers from your error message
+        # 🎯 TARGETED MAPPING: Explicitly tuned for your new headers
         name_map = {}
+        found_types = set()
         
         # 1. Date (Priority)
         for c in df.columns:
@@ -84,45 +85,54 @@ if uploaded_file:
                 if temp_date.dropna().shape[0] > 0:
                     df['normalized_date'] = temp_date
                     name_map[c] = 'date_col'
+                    found_types.add('date')
                     break
 
         # 2. Item Name (Priority: coffee_name)
         for c in df.columns:
-            if any(x in c for x in ['coffee_name', 'product', 'item', 'detail', 'description']):
-                if 'id' not in c:
-                    name_map[c] = 'item'
+            if 'item' not in found_types:
+                if any(x in c for x in ['coffee_name', 'product', 'item', 'detail', 'description', 'category']):
+                    if 'id' not in c:
+                        name_map[c] = 'item'
+                        found_types.add('item')
+                        break
+
+        # 3. Price (Priority: money)
+        for c in df.columns:
+            if 'price' not in found_types:
+                if any(x in c for x in ['money', 'price', 'rate', 'unit_price']):
+                    name_map[c] = 'price'
+                    found_types.add('price')
                     break
 
-        # 3. Quantity (Since your data lacks a clear 'Qty' column, we count occurrences or default to 1 per row)
+        # 4. Quantity (Search for existing qty column)
         for c in df.columns:
-            if any(x in c for x in ['qty', 'quantity', 'units', 'sold']):
-                name_map[c] = 'quantity'
-                break
-        
-        # 4. Price (Priority: money)
-        for c in df.columns:
-            if any(x in c for x in ['money', 'price', 'rate', 'unit_price']):
-                name_map[c] = 'price'
-                break
-        
-        # Fail-safe for Quantity: If no 'Qty' column exists, assume each row is 1 unit sold
-        if 'quantity' not in name_map.values():
+            if 'quantity' not in found_types:
+                if any(x in c for x in ['qty', 'quantity', 'units', 'sold']):
+                    name_map[c] = 'quantity'
+                    found_types.add('quantity')
+                    break
+
+        # 💡 FAIL-SAFE: If no Quantity column exists, create one (each row = 1 sale)
+        if 'quantity' not in found_types:
             df['quantity'] = 1
+            found_types.add('quantity')
         
         df = df.rename(columns=name_map)
         
-        # Final validation
+        # Final validation before calculation
         if 'item' in df.columns and 'price' in df.columns:
-            df['price'] = pd.to_numeric(df['price'], errors='coerce').fillna(0)
+            df['price'] = pd.to_numeric(df[ 'price'], errors='coerce').fillna(0)
             df['quantity'] = pd.to_numeric(df['quantity'], errors='coerce').fillna(1)
             
-            # 🕒 NORMALIZATION
+            # 🕒 CALCULATE TIME SPAN (THE 79K KILLER)
             if 'normalized_date' in df.columns:
                 valid_dates = df['normalized_date'].dropna()
                 days_span = (valid_dates.max() - valid_dates.min()).days
+                # Normalizes total volume to a standard 30-day average
                 months_in_data = max(1.0, days_span / 30.44)
         else:
-            st.error(f"Mapping failed. Recognized: {list(name_map.values())}. Please ensure headers like 'coffee_name' and 'money' are present.")
+            st.error(f"Mapping failed. Recognized: {list(name_map.values())}")
             df = None
             
     except Exception as e: st.error(f"File Error: {e}")
@@ -130,6 +140,7 @@ if uploaded_file:
 # 5. PRICING ENGINE
 if df is not None:
     summary = df.groupby('item').agg({'quantity': 'sum', 'price': 'mean'}).reset_index()
+    # Average total units over the months collected
     summary['Monthly Units Sold'] = (summary['quantity'] / months_in_data).round(0).astype(int)
     summary.rename(columns={'item': 'Item Name', 'price': 'Current Price'}, inplace=True)
 
@@ -174,7 +185,7 @@ with doc_col1:
     """)
     st.subheader("Key Features")
     st.write("""
-    * **Hybrid Data Processing**: Utilizes a dual-entry system for both structured file uploads and unstructured AI-assisted text input.
+    * **Hybrid Data Processing**: Utilizes a dual-entry system for both large-scale structured file uploads and unstructured AI-assisted text input.
     * **Temporal Normalization**: Automatically detects date ranges to provide accurate 30-day monthly averages for sales forecasting.
     * **Psychological Pricing Guardrails**: Implements 'Left-Digit' capping to preserve consumer price anchors during increases.
     * **Universal Data Repair**: Repairs malformed CSV files and re-maps non-standard headers automatically.
