@@ -28,7 +28,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# 2. SIDEBAR
+# 2. SIDEBAR - API SECURITY
 st.sidebar.header("🔑 AI Consultant Setup")
 api_key = st.sidebar.text_input("Enter OpenAI API Key", type="password")
 
@@ -57,37 +57,30 @@ if st.button("Ask Consultant"):
 
 st.divider()
 
-# 4. FILE UPLOADER & DEEP DATE SCAN
+# 4. FILE UPLOADER - REBUILT FOR MAVEN ROASTERS
 uploaded_file = st.file_uploader("Upload Maven Roasters POS file", type=["csv", "xlsx"])
 
+# Initialize variables to prevent NameError
 df = None
-months_in_data = 1.0 # Default fallback
+months_in_data = 1.0 
 
 if uploaded_file:
     try:
         if uploaded_file.name.endswith('.csv'):
             raw_bytes = uploaded_file.getvalue()
             raw_text = raw_bytes.decode("utf-8-sig", errors="ignore")
-            first_line = raw_text.split('\n')[0]
-            df = pd.read_csv(io.StringIO(raw_text), sep='|' if '|' in first_line else ',')
+            # FORCED PIPE DETECTION: Fixes the ValueError in your screenshot
+            if '|' in raw_text:
+                df = pd.read_csv(io.StringIO(raw_text), sep='|')
+            else:
+                df = pd.read_csv(io.StringIO(raw_text))
         else:
             df = pd.read_excel(uploaded_file)
         
+        # Clean headers
         df.columns = [str(c).lower().strip() for c in df.columns]
         
-        # 🕵️ DEEP DATE SEARCH
-        # We try to convert every column to a date until we find the right one
-        date_col_found = None
-        for col in df.columns:
-            # Check if the column name sounds like a date
-            if any(x in col for x in ['date', 'time', 'transaction', 'period']):
-                temp_dates = pd.to_datetime(df[col], errors='coerce')
-                if temp_dates.dropna().shape[0] > 0:
-                    df['detected_date'] = temp_dates
-                    date_col_found = 'detected_date'
-                    break
-        
-        # Mapping for other columns
+        # Mapping for core columns
         name_map = {}
         for c in df.columns:
             if any(x in c for x in ['detail', 'description']): name_map[c] = 'item'
@@ -95,41 +88,49 @@ if uploaded_file:
                 name_map[c] = 'item'
             if any(x in c for x in ['qty', 'quantity', 'sold']): name_map[c] = 'quantity'
             if any(x in c for x in ['price', 'rate']): name_map[c] = 'price'
+            if any(x in c for x in ['date', 'time']): name_map[c] = 'date'
         
         df = df.rename(columns=name_map)
+        
+        # Select only the columns we need to prevent "Not 1-Dimensional" errors
+        keep = [c for c in ['item', 'quantity', 'price', 'date'] if c in df.columns]
+        df = df[keep]
+        # Deduplicate headers
+        df = df.loc[:, ~df.columns.duplicated(keep='last')]
         
         if all(col in df.columns for col in ['item', 'quantity', 'price']):
             for col in ['quantity', 'price']:
                 df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
             
-            # CALCULATE REAL MONTH SPAN
-            if date_col_found:
-                valid_dates = df[date_col_found].dropna()
-                days_span = (valid_dates.max() - valid_dates.min()).days
-                # This should now result in ~5.9 for Maven Roasters
-                months_in_data = max(1.0, days_span / 30.44)
-            else:
-                st.warning("⚠️ No date column detected. Projections may be inflated.")
-    except Exception as e: st.error(f"File Error: {e}")
+            # 🕒 THE 94K FIX: NORMALIZATION
+            if 'date' in df.columns:
+                df['date'] = pd.to_datetime(df['date'], errors='coerce')
+                valid_dates = df['date'].dropna()
+                if not valid_dates.empty:
+                    days_span = (valid_dates.max() - valid_dates.min()).days
+                    months_in_data = max(1.0, days_span / 30.44)
+    except Exception as e:
+        st.error(f"File Error: {e}")
 
-# 5. PRICING ENGINE - THE MONTHLY FILTER
+# 5. PRICING ENGINE
 if df is not None:
+    # Aggregation
     summary = df.groupby('item').agg({'quantity': 'sum', 'price': 'mean'}).reset_index()
     
-    # Strictly normalize units immediately
+    # Normalize Volume immediately
     summary['Monthly Units Sold'] = (summary['quantity'] / months_in_data).round(0).astype(int)
     summary.rename(columns={'item': 'Item Name', 'price': 'Current Price'}, inplace=True)
 
     def run_optimization(row):
-        p, m_units = row['Current Price'], row['Monthly Units Sold']
+        p, units = row['Current Price'], row['Monthly Units Sold']
         dollar = math.floor(p)
-        if m_units > 35:
+        if units > 35:
             new_p = dollar + 0.99 if math.floor(p + 0.50) > dollar else p + 0.50
-            return new_p, (new_p - p) * m_units, "Increase"
-        elif m_units < 10:
+            return new_p, (new_p - p) * units, "Increase"
+        elif units < 10:
             new_p = max(0.99, p - 0.50)
-            extra_m = m_units * 0.20
-            gain = max(0, (new_p * (m_units + extra_m)) - (p * m_units))
+            extra = units * 0.20
+            gain = max(0, (new_p * (units + extra)) - (p * units))
             return new_p, gain, "Decrease"
         return p, 0, "Hold"
 
@@ -137,13 +138,12 @@ if df is not None:
     summary['AI Suggested Price'] = [x[0] for x in results]
     summary['Monthly Impact'] = [float(x[1]) for x in results]
     summary['Strategy'] = [x[2] for x in results]
+    summary['Proj. Monthly Gain'] = summary['Monthly Impact'].apply(lambda x: f"+${x:,.2f}" if x > 0 else "$0")
 
     st.subheader(f"Strategy Analysis ({months_in_data:.1f} Months Normalized)")
-    
-    # The metric strictly sums the monthly values
     st.metric("Total Projected Monthly Gain", f"+${summary['Monthly Impact'].sum():,.2f}")
     
-    styled_df = summary[['Item Name', 'Monthly Units Sold', 'Current Price', 'AI Suggested Price', 'Monthly Impact', 'Strategy']].style.applymap(
+    styled_df = summary[['Item Name', 'Monthly Units Sold', 'Current Price', 'AI Suggested Price', 'Proj. Monthly Gain', 'Strategy']].style.applymap(
         lambda x: 'background-color: #C6F4D6' if x == 'Increase' else ('background-color: #F8D7DA' if x == 'Decrease' else ''), 
         subset=['Strategy']
     )
