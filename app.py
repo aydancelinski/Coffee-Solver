@@ -88,7 +88,7 @@ if uploaded_file:
 
         # 2. Map Item, Qty, and Price (Specific keywords to prevent collisions)
         for c in df.columns:
-            if any(x in c for x in ['detail', 'description', 'category']): name_map[c] = 'item'
+            if any(x in c for x in ['detail', 'description', 'category', 'product_category']): name_map[c] = 'item'
             elif any(x in c for x in ['qty', 'quantity', 'sold', 'units']): name_map[c] = 'quantity'
             elif any(x in c for x in ['unit_price', 'price', 'rate']): name_map[c] = 'price'
         
@@ -104,6 +104,10 @@ if uploaded_file:
                 days_span = (valid_dates.max() - valid_dates.min()).days
                 # Results in ~5.9 for Maven Roasters, and ~3.0 for your Test Data
                 months_in_data = max(1.0, days_span / 30.44)
+        else:
+            st.error(f"Could not map columns. Found: {list(df.columns)}")
+            df = None
+            
     except Exception as e: st.error(f"File Error: {e}")
 
 # 5. PRICING ENGINE (NORMALIZED MATH)
