@@ -74,11 +74,11 @@ if uploaded_file:
         
         df.columns = [str(c).lower().strip() for c in df.columns]
         
-        # 🕵️ DEEP SCAN MAPPING
+        # 🕵️ DEEP MAPPING: Fixed Validation Logic
         name_map = {}
         found_mapped = set()
         
-        # 1. DATE SCAN (Crucial for profit accuracy)
+        # 1. DATE SCAN
         for c in df.columns:
             if any(x in c for x in ['date', 'time', 'transaction', 'sale']):
                 temp_date = pd.to_datetime(df[c], errors='coerce')
@@ -107,7 +107,8 @@ if uploaded_file:
         
         df = df.rename(columns=name_map)
         
-        if all(col in df.columns for col in ['item', 'quantity', 'price']):
+        # FIXED CHECK: Ensure required metrics are present
+        if 'item' in df.columns and 'quantity' in df.columns and 'price' in df.columns:
             for col in ['quantity', 'price']:
                 df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
             
@@ -117,7 +118,7 @@ if uploaded_file:
                 days_span = (valid_dates.max() - valid_dates.min()).days
                 months_in_data = max(1.0, days_span / 30.44)
         else:
-            st.error(f"Incomplete mapping. Columns recognized: {list(name_map.values())}")
+            st.error(f"Incomplete mapping. Columns recognized: {list(df.columns)}")
             df = None
             
     except Exception as e: st.error(f"File Error: {e}")
