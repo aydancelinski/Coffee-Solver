@@ -63,7 +63,7 @@ if st.button("Ask Consultant"):
         with st.spinner("Consulting Economic Theory..."):
             try:
                 answer = ai_strategy_consultant(user_query, api_key)
-                st.markdown(f"> **Consultant's Insight:** {answer}")
+                st.markdown(f text="> **Consultant's Insight:** {answer}")
             except Exception as e:
                 st.error(f"AI Error: {e}")
 
@@ -133,7 +133,6 @@ if df is not None and 'item' in df.columns:
 
     results = summary.apply(run_optimization, axis=1)
     summary['AI Suggested Price'] = [x[0] for x in results]
-    # Fixed AttributeError by using round() on values, not the list
     summary['Monthly Impact'] = [round(float(x[1]), 2) for x in results]
     summary['Strategy'] = [x[2] for x in results]
     summary['Proj. Monthly Gain'] = summary['Monthly Impact'].apply(lambda x: f"+${x:,.2f}" if x > 0 else "$0")
@@ -166,8 +165,10 @@ with doc_col1:
 with doc_col2:
     st.header("👤 About the Developer")
     st.write("""
-    **Aydan P. Celinski** | *CU Boulder Economics*
-    * **Google Data Analytics candidate.**
-    * **Specialization**: Price Optimization & Business Automation.
-    [LinkedIn](#) | [GitHub](#)
+    **Aydan P. Celinski** | *Third Year Economics Student at the University of Colorado Boulder*
+    
+    * **Specialization**: Price Optimization, Market Analysis, and Business Automation.
+    * **Technical Skills**: Python (Pandas, Streamlit), SQL, and API Integration.
+    
+    [LinkedIn Profile](https://www.linkedin.com/in/aydan-celinski-a35738299/)
     """)
