@@ -45,7 +45,7 @@ def ai_data_translator(user_input, key):
     return response.choices[0].message.content
 
 st.subheader("💬 AI Data Assistant")
-user_chat = st.text_area("Paste messy sales data (e.g. 'Sold 10 lattes at $5'):")
+user_chat = st.text_area("Copy and paste messy sales data from CSV file")
 
 ai_df = None
 if st.button("Process with AI"):
