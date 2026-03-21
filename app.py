@@ -52,12 +52,13 @@ if st.button("Ask Consultant"):
         with st.spinner("Consulting..."):
             try:
                 answer = ai_strategy_consultant(user_query, api_key)
-                st.markdown(f f"> **Consultant's Insight:** {answer}")
+                # TYPO FIXED HERE: Removed extra space between f's
+                st.markdown(f"> **Consultant's Insight:** {answer}")
             except Exception as e: st.error(f"AI Error: {e}")
 
 st.divider()
 
-# 4. UNIVERSAL FILE UPLOADER & MAPPING
+# 4. UNIVERSAL FILE UPLOADER & ADAPTIVE MAPPING
 uploaded_file = st.file_uploader("Upload Coffee POS File (CSV or Excel)", type=["csv", "xlsx"])
 
 df = None
@@ -77,7 +78,7 @@ if uploaded_file:
         name_map = {}
         found_types = set()
         
-        # Mapping Logic (Fixed for coffee_name/money/date)
+        # 1. Date Scan
         for c in df.columns:
             if any(x in c for x in ['date', 'transaction_date', 'sale_date']):
                 temp_date = pd.to_datetime(df[c], errors='coerce')
@@ -85,21 +86,23 @@ if uploaded_file:
                     df['normalized_date'] = temp_date
                     found_types.add('date')
                     break
+
+        # 2. Item Detail Search (Priority over Category)
         for c in df.columns:
-            if 'item' not in found_types and any(x in c for x in ['coffee_name', 'product_detail', 'item', 'description']):
-                name_map[c] = 'item'
-                found_types.add('item')
-                break
+            if 'item' not in found_types:
+                if any(x in c for x in ['coffee_name', 'product_detail', 'item_detail', 'description']):
+                    name_map[c] = 'item'
+                    found_types.add('item')
+                    break
+        
+        # 3. Price & Qty Scan
         for c in df.columns:
             if 'price' not in found_types and any(x in c for x in ['money', 'unit_price', 'price']):
                 name_map[c] = 'price'
                 found_types.add('price')
-                break
-        for c in df.columns:
-            if 'quantity' not in found_types and any(x in c for x in ['qty', 'quantity', 'units']):
+            elif 'quantity' not in found_types and any(x in c for x in ['qty', 'quantity', 'units', 'sold', 'transaction_qty']):
                 name_map[c] = 'quantity'
                 found_types.add('quantity')
-                break
 
         if 'quantity' not in found_types: df['quantity'] = 1
         
@@ -113,6 +116,10 @@ if uploaded_file:
                 valid_dates = df['normalized_date'].dropna()
                 days_span = (valid_dates.max() - valid_dates.min()).days
                 months_in_data = max(1.0, days_span / 30.44)
+        else:
+            st.error(f"Incomplete mapping. Columns recognized: {list(df.columns)}")
+            df = None
+            
     except Exception as e: st.error(f"File Error: {e}")
 
 # 5. DYNAMIC PRICING ENGINE
@@ -120,29 +127,24 @@ if df is not None:
     summary = df.groupby('item').agg({'quantity': 'sum', 'price': 'mean'}).reset_index()
     summary['Monthly Units Sold'] = (summary['quantity'] / months_in_data).round(0).astype(int)
     
-    # 📈 DYNAMIC THRESHOLDS: Calculates the shop's personal performance baseline
+    # 📈 ADAPTIVE THRESHOLDS: Real-world logic for high-volume shops
     avg_volume = summary['Monthly Units Sold'].mean()
-    high_volume_trigger = avg_volume * 1.5  # Top tier performers
-    low_volume_trigger = avg_volume * 0.3   # Laggards
+    high_volume_trigger = avg_volume * 1.5
+    low_volume_trigger = avg_volume * 0.3
     
     summary.rename(columns={'item': 'Item Name', 'price': 'Current Price'}, inplace=True)
 
     def run_dynamic_optimization(row):
         p, units = row['Current Price'], row['Monthly Units Sold']
         dollar = math.floor(p)
-        
-        # 1. High Inelasticity (High volume relative to average)
         if units > high_volume_trigger:
             new_p = dollar + 0.99 if math.floor(p + 0.50) > dollar else p + 0.50
             return new_p, (new_p - p) * units, "Increase"
-        
-        # 2. Underperformers (Very low volume relative to average)
         elif units < low_volume_trigger:
             new_p = max(0.99, p - 0.50)
             extra = units * 0.20
             gain = max(0, (new_p * (units + extra)) - (p * units))
             return new_p, gain, "Decrease"
-            
         return p, 0, "Hold"
 
     results = summary.apply(run_dynamic_optimization, axis=1)
@@ -152,7 +154,7 @@ if df is not None:
     summary['Proj. Monthly Gain'] = summary['Monthly Impact'].apply(lambda x: f"+${x:,.2f}" if x > 0 else "$0")
 
     st.subheader(f"Strategy Analysis ({months_in_data:.1f} Months Collected)")
-    st.info(f"Shop-Specific Benchmarks: High Volume > {int(high_volume_trigger)} units/mo | Low Volume < {int(low_volume_trigger)} units/mo")
+    st.info(f"📊 Shop Benchmark: High Volume > {int(high_volume_trigger)} units/mo")
     
     st.metric("Total Projected Monthly Gain", f"+${summary['Monthly Impact'].sum():,.2f}")
     
@@ -167,10 +169,10 @@ st.divider()
 doc_col1, doc_col2 = st.columns([2, 1])
 with doc_col1:
     st.header("Objective")
-    st.write("Bridging raw POS data and actionable economic strategy for small business owners.")
+    st.write("Bridging raw POS data and actionable economic strategy.")
     st.subheader("Key Features")
-    st.write("* **Relative Elasticity Scaling**: Dynamic volume thresholds based on shop size.")
-    st.write("* **Temporal Normalization**: Standardized 30-day forecasting.")
+    st.write("* **Adaptive Elasticity**: Scaling triggers to the business's actual volume.")
+    st.write("* **Temporal Normalization**: 30-day standardized forecasting.")
 
 with doc_col2:
     st.header("About the Developer")
