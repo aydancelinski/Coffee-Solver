@@ -57,7 +57,7 @@ if st.button("Ask Consultant"):
 
 st.divider()
 
-# 4. UNIVERSAL FILE UPLOADER & TARGETED MAPPING
+# 4. UNIVERSAL FILE UPLOADER & GRANULAR MAPPING
 uploaded_file = st.file_uploader("Upload Coffee POS File (CSV or Excel)", type=["csv", "xlsx"])
 
 df = None
@@ -74,62 +74,66 @@ if uploaded_file:
         
         df.columns = [str(c).lower().strip() for c in df.columns]
         
-        # 🎯 TARGETED MAPPING: Explicitly tuned for your new headers
+        # 🎯 GRANULAR MAPPING: Priority on Item Detail, NOT Category
         name_map = {}
         found_types = set()
         
-        # 1. Date (Priority)
+        # 1. Date (Priority for 5.9 Month Normalization)
         for c in df.columns:
             if any(x in c for x in ['date', 'transaction_date', 'sale_date']):
                 temp_date = pd.to_datetime(df[c], errors='coerce')
                 if temp_date.dropna().shape[0] > 0:
                     df['normalized_date'] = temp_date
-                    name_map[c] = 'date_col'
                     found_types.add('date')
                     break
 
-        # 2. Item Name (Priority: coffee_name)
+        # 2. Item Name (Priority: Specific Detail/Description over broad Category)
         for c in df.columns:
             if 'item' not in found_types:
-                if any(x in c for x in ['coffee_name', 'product', 'item', 'detail', 'description', 'category']):
-                    if 'id' not in c:
-                        name_map[c] = 'item'
-                        found_types.add('item')
-                        break
+                # We prioritize 'detail' and 'coffee_name' to get specific drinks
+                if any(x in c for x in ['product_detail', 'coffee_name', 'item_detail', 'description']):
+                    name_map[c] = 'item'
+                    found_types.add('item')
+                    break
+        
+        # Fallback: if no detail is found, look for general item/product headers
+        if 'item' not in found_types:
+            for c in df.columns:
+                if any(x in c for x in ['product', 'item']) and 'id' not in c and 'category' not in c:
+                    name_map[c] = 'item'
+                    found_types.add('item')
+                    break
 
-        # 3. Price (Priority: money)
+        # 3. Price (Priority: money/unit_price)
         for c in df.columns:
             if 'price' not in found_types:
-                if any(x in c for x in ['money', 'price', 'rate', 'unit_price']):
+                if any(x in c for x in ['money', 'unit_price', 'price', 'rate']):
                     name_map[c] = 'price'
                     found_types.add('price')
                     break
 
-        # 4. Quantity (Search for existing qty column)
+        # 4. Quantity
         for c in df.columns:
             if 'quantity' not in found_types:
-                if any(x in c for x in ['qty', 'quantity', 'units', 'sold']):
+                if any(x in c for x in ['qty', 'quantity', 'units', 'sold', 'transaction_qty']):
                     name_map[c] = 'quantity'
                     found_types.add('quantity')
                     break
 
-        # 💡 FAIL-SAFE: If no Quantity column exists, create one (each row = 1 sale)
         if 'quantity' not in found_types:
             df['quantity'] = 1
             found_types.add('quantity')
         
         df = df.rename(columns=name_map)
         
-        # Final validation before calculation
         if 'item' in df.columns and 'price' in df.columns:
-            df['price'] = pd.to_numeric(df[ 'price'], errors='coerce').fillna(0)
+            df['price'] = pd.to_numeric(df['price'], errors='coerce').fillna(0)
             df['quantity'] = pd.to_numeric(df['quantity'], errors='coerce').fillna(1)
             
-            # 🕒 CALCULATE TIME SPAN (THE 79K KILLER)
-            if 'normalized_date' in df.columns:
+            # 🕒 TIME SPAN MATH
+            if 'date' in found_types:
                 valid_dates = df['normalized_date'].dropna()
                 days_span = (valid_dates.max() - valid_dates.min()).days
-                # Normalizes total volume to a standard 30-day average
                 months_in_data = max(1.0, days_span / 30.44)
         else:
             st.error(f"Mapping failed. Recognized: {list(name_map.values())}")
@@ -140,7 +144,6 @@ if uploaded_file:
 # 5. PRICING ENGINE
 if df is not None:
     summary = df.groupby('item').agg({'quantity': 'sum', 'price': 'mean'}).reset_index()
-    # Average total units over the months collected
     summary['Monthly Units Sold'] = (summary['quantity'] / months_in_data).round(0).astype(int)
     summary.rename(columns={'item': 'Item Name', 'price': 'Current Price'}, inplace=True)
 
@@ -185,10 +188,10 @@ with doc_col1:
     """)
     st.subheader("Key Features")
     st.write("""
-    * **Hybrid Data Processing**: Utilizes a dual-entry system for both large-scale structured file uploads and unstructured AI-assisted text input.
+    * **Hybrid Data Processing**: Utilizes a dual-entry system for both structured file uploads and unstructured AI-assisted text input.
     * **Temporal Normalization**: Automatically detects date ranges to provide accurate 30-day monthly averages for sales forecasting.
     * **Psychological Pricing Guardrails**: Implements 'Left-Digit' capping to preserve consumer price anchors during increases.
-    * **Universal Data Repair**: Repairs malformed CSV files and re-maps non-standard headers automatically.
+    * **Universal Data Repair**: Repairs malformed CSV files and re-maps non-standard headers like 'Product_Detail' or 'Unit_Rate' automatically.
     """)
 
 with doc_col2:
