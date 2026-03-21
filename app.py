@@ -52,13 +52,13 @@ if st.button("Ask Consultant"):
         with st.spinner("Consulting..."):
             try:
                 answer = ai_strategy_consultant(user_query, api_key)
-                # TYPO FIXED HERE: Removed extra space between f's
+                # SYNTAX FIXED: Single f-string used here
                 st.markdown(f"> **Consultant's Insight:** {answer}")
             except Exception as e: st.error(f"AI Error: {e}")
 
 st.divider()
 
-# 4. UNIVERSAL FILE UPLOADER & ADAPTIVE MAPPING
+# 4. UNIVERSAL FILE UPLOADER & MAPPING
 uploaded_file = st.file_uploader("Upload Coffee POS File (CSV or Excel)", type=["csv", "xlsx"])
 
 df = None
@@ -78,7 +78,6 @@ if uploaded_file:
         name_map = {}
         found_types = set()
         
-        # 1. Date Scan
         for c in df.columns:
             if any(x in c for x in ['date', 'transaction_date', 'sale_date']):
                 temp_date = pd.to_datetime(df[c], errors='coerce')
@@ -86,23 +85,21 @@ if uploaded_file:
                     df['normalized_date'] = temp_date
                     found_types.add('date')
                     break
-
-        # 2. Item Detail Search (Priority over Category)
         for c in df.columns:
-            if 'item' not in found_types:
-                if any(x in c for x in ['coffee_name', 'product_detail', 'item_detail', 'description']):
-                    name_map[c] = 'item'
-                    found_types.add('item')
-                    break
-        
-        # 3. Price & Qty Scan
+            if 'item' not in found_types and any(x in c for x in ['coffee_name', 'product_detail', 'item_detail', 'description']):
+                name_map[c] = 'item'
+                found_types.add('item')
+                break
         for c in df.columns:
             if 'price' not in found_types and any(x in c for x in ['money', 'unit_price', 'price']):
                 name_map[c] = 'price'
                 found_types.add('price')
-            elif 'quantity' not in found_types and any(x in c for x in ['qty', 'quantity', 'units', 'sold', 'transaction_qty']):
+                break
+        for c in df.columns:
+            if 'quantity' not in found_types and any(x in c for x in ['qty', 'quantity', 'units', 'sold', 'transaction_qty']):
                 name_map[c] = 'quantity'
                 found_types.add('quantity')
+                break
 
         if 'quantity' not in found_types: df['quantity'] = 1
         
@@ -116,10 +113,6 @@ if uploaded_file:
                 valid_dates = df['normalized_date'].dropna()
                 days_span = (valid_dates.max() - valid_dates.min()).days
                 months_in_data = max(1.0, days_span / 30.44)
-        else:
-            st.error(f"Incomplete mapping. Columns recognized: {list(df.columns)}")
-            df = None
-            
     except Exception as e: st.error(f"File Error: {e}")
 
 # 5. DYNAMIC PRICING ENGINE
@@ -127,7 +120,7 @@ if df is not None:
     summary = df.groupby('item').agg({'quantity': 'sum', 'price': 'mean'}).reset_index()
     summary['Monthly Units Sold'] = (summary['quantity'] / months_in_data).round(0).astype(int)
     
-    # 📈 ADAPTIVE THRESHOLDS: Real-world logic for high-volume shops
+    # 📈 ADAPTIVE THRESHOLDS: Real-world logic based on shop size
     avg_volume = summary['Monthly Units Sold'].mean()
     high_volume_trigger = avg_volume * 1.5
     low_volume_trigger = avg_volume * 0.3
@@ -164,17 +157,33 @@ if df is not None:
     )
     st.dataframe(styled_df, use_container_width=True)
 
-# 6. OBJECTIVE & BIO
+# 6. RESTORED DOCUMENTATION & BIO
 st.divider()
 doc_col1, doc_col2 = st.columns([2, 1])
+
 with doc_col1:
     st.header("Objective")
-    st.write("Bridging raw POS data and actionable economic strategy.")
+    st.write("""
+    The Celinski Coffee Solver was developed to bridge the gap between raw Point-of-Sale (POS) data and actionable business strategy. 
+    As an Economics student, I recognized that small business owners often lack the tools to perform complex price elasticity 
+    tests. This application automates that analysis to maximize revenue through data-driven recommendations.
+    """)
     st.subheader("Key Features")
-    st.write("* **Adaptive Elasticity**: Scaling triggers to the business's actual volume.")
-    st.write("* **Temporal Normalization**: 30-day standardized forecasting.")
+    st.write("""
+    * **Hybrid Data Processing**: Utilizes a dual-entry system allowing for both large-scale structured file uploads (CSV/Excel) and unstructured 'messy' text input via an OpenAI-integrated AI Assistant.
+    * **Temporal Normalization**: Automatically detects the date range of imported datasets (up to 10,000+ rows) and normalizes sales volume to a standard 30-day monthly average for accurate forecasting.
+    * **Psychological Pricing Guardrails**: Implements a 'Left-Digit' capping algorithm that ensures price increases (based on high-volume performance) do not cross whole-dollar thresholds, preserving consumer price anchors.
+    * **Universal Data Repair**: A defensive programming layer that identifies and repairs malformed CSV files (Pipe or Comma delimited) and re-maps non-standard headers like 'Product_Detail' or 'Unit_Rate' automatically.
+    """)
 
 with doc_col2:
     st.header("About the Developer")
     st.write(f"**Aydan P. Celinski** *University of Colorado Boulder*")
     st.write(f"*Third Year Economics Student | Business & Spanish Minors*")
+    st.write("""
+    I am a data-focused analyst passionate about using Python and Machine Learning to solve real-world 
+    financial problems. My background combines economic theory with technical execution, including:
+    """)
+    st.write("* **Technical Skills**: Python (Pandas, Streamlit), SQL, and API Integration.")
+    st.write("* **Focus**: Price Optimization, Market Analysis, and Business Automation.")
+    st.markdown(f"[LinkedIn Profile](https://www.linkedin.com/in/aydan-celinski-a35738299/)")
