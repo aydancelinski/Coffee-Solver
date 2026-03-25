@@ -119,7 +119,6 @@ if df is not None:
     summary = df.groupby('item').agg({'quantity': 'sum', 'price': 'mean'}).reset_index()
     summary['Monthly Units Sold'] = (summary['quantity'] / months_in_data).round(0).astype(int)
     
-    # 📈 ADAPTIVE THRESHOLDS: Real-world logic based on shop size
     avg_volume = summary['Monthly Units Sold'].mean()
     high_volume_trigger = avg_volume * 1.5
     low_volume_trigger = avg_volume * 0.3
@@ -146,8 +145,6 @@ if df is not None:
     summary['Proj. Monthly Gain'] = summary['Monthly Impact'].apply(lambda x: f"+${x:,.2f}" if x > 0 else "$0")
 
     st.subheader(f"Strategy Analysis ({months_in_data:.1f} Months Collected)")
-    
-    # 💡 UPDATED INFO BOX: Now shows both high and low thresholds
     st.info(f"📊 **Shop Benchmarks**: High Volume (Increase) > {int(high_volume_trigger)} units/mo | Low Volume (Decrease) < {int(low_volume_trigger)} units/mo")
     
     st.metric("Total Projected Monthly Gain", f"+${summary['Monthly Impact'].sum():,.2f}")
@@ -158,7 +155,7 @@ if df is not None:
     )
     st.dataframe(styled_df, use_container_width=True)
 
-# 6. RESTORED DOCUMENTATION & BIO
+# 6. UPDATED DOCUMENTATION & BIO
 st.divider()
 doc_col1, doc_col2 = st.columns([2, 1])
 
@@ -171,10 +168,10 @@ with doc_col1:
     """)
     st.subheader("Key Features")
     st.write("""
-    * **Hybrid Data Processing**: Utilizes a dual-entry system allowing for both large-scale structured file uploads (CSV/Excel) and unstructured 'messy' text input via an OpenAI-integrated AI Assistant.
-    * **Temporal Normalization**: Automatically detects the date range of imported datasets (up to 10,000+ rows) and normalizes sales volume to a standard 30-day monthly average for accurate forecasting.
-    * **Psychological Pricing Guardrails**: Implements a 'Left-Digit' capping algorithm that ensures price increases (based on high-volume performance) do not cross whole-dollar thresholds, preserving consumer price anchors.
-    * **Universal Data Repair**: A defensive programming layer that identifies and repairs malformed CSV files (Pipe or Comma delimited) and re-maps non-standard headers like 'Product_Detail' or 'Unit_Rate' automatically.
+    * **Proprietary Price Optimization**: Utilizes a custom economic model developed to identify optimized price points based on volume-weighted inelasticity.
+    * **$.50 Value Bucket Strategy**: Employs a strategic "bucket" system for price adjustments, identifying underperforming items for $0.50 decreases to stimulate demand while protecting margins.
+    * **Left-Digit Anchor Preservation**: Implements a strict guardrail that prevents price increases from rolling over the first numerical value (the dollar threshold), maintaining consumer psychological anchors.
+    * **Temporal Normalization**: Automatically detects the date range of imported datasets and normalizes sales volume to a standard 30-day monthly average for accurate forecasting.
     """)
 
 with doc_col2:
