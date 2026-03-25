@@ -52,7 +52,6 @@ if st.button("Ask Consultant"):
         with st.spinner("Consulting..."):
             try:
                 answer = ai_strategy_consultant(user_query, api_key)
-                # SYNTAX FIXED: Single f-string used here
                 st.markdown(f"> **Consultant's Insight:** {answer}")
             except Exception as e: st.error(f"AI Error: {e}")
 
@@ -147,7 +146,9 @@ if df is not None:
     summary['Proj. Monthly Gain'] = summary['Monthly Impact'].apply(lambda x: f"+${x:,.2f}" if x > 0 else "$0")
 
     st.subheader(f"Strategy Analysis ({months_in_data:.1f} Months Collected)")
-    st.info(f"📊 Shop Benchmark: High Volume > {int(high_volume_trigger)} units/mo")
+    
+    # 💡 UPDATED INFO BOX: Now shows both high and low thresholds
+    st.info(f"📊 **Shop Benchmarks**: High Volume (Increase) > {int(high_volume_trigger)} units/mo | Low Volume (Decrease) < {int(low_volume_trigger)} units/mo")
     
     st.metric("Total Projected Monthly Gain", f"+${summary['Monthly Impact'].sum():,.2f}")
     
