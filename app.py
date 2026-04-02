@@ -21,17 +21,15 @@ st.markdown("""
         border-radius: 10px;
         padding: 15px;
     }
-    [data-testid="stSidebar"] { background-color: #E6D5B8 !important; }
     </style>
     """, unsafe_allow_html=True)
 
-# 2. SIDEBAR
+# 2. SIDEBAR & AI CONSULTANT
 st.sidebar.header("🔑 AI Consultant Setup")
 api_key = st.sidebar.text_input("Enter OpenAI API Key", type="password")
 
 st.title("Celinski's Coffee Solver »")
 
-# 3. STRATEGIC AI CONSULTANT
 def ai_strategy_consultant(user_query, key):
     client = openai.OpenAI(api_key=key)
     system_prompt = "You are an Economic Strategy Consultant. Explain pricing using Elasticity and Left-Digit anchors."
@@ -54,7 +52,7 @@ if st.button("Ask Consultant"):
 
 st.divider()
 
-# 4. UNIVERSAL FILE UPLOADER & MAPPING
+# 4. FILE UPLOADER & REFINED NAME MAPPING
 uploaded_file = st.file_uploader("Upload Coffee POS File (CSV or Excel)", type=["csv", "xlsx"])
 
 df = None
@@ -76,56 +74,55 @@ if uploaded_file:
         
         # 1. Date Scan
         for c in df.columns:
-            if any(x in c for x in ['date', 'transaction_date', 'sale_date', 'detected_date']):
+            if any(x in c for x in ['date', 'transaction_date', 'sale_date']):
                 temp_date = pd.to_datetime(df[c], errors='coerce')
                 if temp_date.dropna().shape[0] > 0:
                     df['normalized_date'] = temp_date
                     found_types.add('date')
                     break
 
-        # 2. Item Name Scan (Targeting 'coffee_name' specifically from your screenshot)
-        for c in df.columns:
-            if 'item' not in found_types:
-                if any(x in c for x in ['coffee_name', 'product_detail', 'item_detail', 'description', 'product']):
+        # 2. ITEM NAME SCAN: Explicitly avoid "ID" or "index" to prevent the 1, 2, 3 error
+        priority_names = ['coffee_name', 'product_detail', 'item_detail', 'description']
+        for p in priority_names:
+            for c in df.columns:
+                if p in c and 'id' not in c and 'index' not in c:
                     name_map[c] = 'item'
                     found_types.add('item')
                     break
+            if 'item' in found_types: break
         
-        # 3. Price Scan (Targeting 'money' from your screenshot)
+        # 3. Price & Quantity Scan
         for c in df.columns:
-            if 'price' not in found_types:
-                if any(x in c for x in ['money', 'unit_price', 'price', 'rate']):
-                    name_map[c] = 'price'
-                    found_types.add('price')
-                    break
-
-        # 4. Quantity Scan
-        for c in df.columns:
-            if 'quantity' not in found_types:
-                if any(x in c for x in ['qty', 'quantity', 'units', 'sold']):
-                    name_map[c] = 'quantity'
-                    found_types.add('quantity')
-                    break
+            if 'price' not in found_types and any(x in c for x in ['money', 'unit_price', 'price']):
+                name_map[c] = 'price'
+                found_types.add('price')
+            elif 'quantity' not in found_types and any(x in c for x in ['qty', 'quantity', 'units']):
+                name_map[c] = 'quantity'
+                found_types.add('quantity')
 
         if 'quantity' not in found_types: df['quantity'] = 1
         
         df = df.rename(columns=name_map)
         
         if 'item' in df.columns and 'price' in df.columns:
+            # Ensure price and quantity are numeric
             df['price'] = pd.to_numeric(df['price'], errors='coerce').fillna(0)
             df['quantity'] = pd.to_numeric(df['quantity'], errors='coerce').fillna(1)
+            
+            # Use specific item name column (convert to string to ensure no numbers-only issues)
+            df['item'] = df['item'].astype(str)
             
             if 'date' in found_types:
                 valid_dates = df['normalized_date'].dropna()
                 days_span = (valid_dates.max() - valid_dates.min()).days
                 months_in_data = max(1.0, days_span / 30.44)
         else:
-            st.error(f"Incomplete mapping. Could not find 'item' or 'price'. Found: {list(df.columns)}")
+            st.error(f"Incomplete mapping. Could not find Item Name or Price. Columns: {list(df.columns)}")
             df = None
             
     except Exception as e: st.error(f"File Error: {e}")
 
-# 5. PRICING ENGINE
+# 5. DYNAMIC PRICING ENGINE
 if df is not None:
     summary = df.groupby('item').agg({'quantity': 'sum', 'price': 'mean'}).reset_index()
     summary['Monthly Units Sold'] = (summary['quantity'] / months_in_data).round(0).astype(int)
@@ -160,7 +157,7 @@ if df is not None:
     
     st.metric("Total Projected Monthly Gain", f"+${summary['Monthly Impact'].sum():,.2f}")
     
-    # 🩹 FIX: .map() replaces the outdated .applymap() to kill the AttributeError
+    # 🩹 FIX: Using .map() for updated Pandas compatibility
     styled_df = summary[['Item Name', 'Monthly Units Sold', 'Current Price', 'AI Suggested Price', 'Proj. Monthly Gain', 'Strategy']].style.map(
         lambda x: 'background-color: #C6F4D6' if x == 'Increase' else ('background-color: #F8D7DA' if x == 'Decrease' else ''), 
         subset=['Strategy']
@@ -173,27 +170,16 @@ doc_col1, doc_col2 = st.columns([2, 1])
 
 with doc_col1:
     st.header("Objective")
-    st.write("""
-    The Celinski Coffee Solver was developed to bridge the gap between raw Point-of-Sale (POS) data and actionable business strategy. 
-    As an Economics student, I recognized that small business owners often lack the tools to perform complex price elasticity 
-    tests. This application automates that analysis to maximize revenue through data-driven recommendations.
-    """)
+    st.write("Bridging raw POS data and actionable economic strategy.")
     st.subheader("Key Features")
     st.write("""
-    * **Proprietary Price Optimization**: Utilizes a custom economic model developed to identify optimized price points based on volume-weighted inelasticity.
-    * **$.50 Value Bucket Strategy**: Employs a strategic "bucket" system for price adjustments, identifying underperforming items for $0.50 decreases to stimulate demand while protecting margins.
-    * **Left-Digit Anchor Preservation**: Implements a strict guardrail that prevents price increases from rolling over the first numerical value (the dollar threshold), maintaining consumer psychological anchors.
-    * **Temporal Normalization**: Automatically detects the date range of imported datasets and normalizes sales volume to a standard 30-day monthly average for accurate forecasting.
+    * **Proprietary Price Optimization**: identifies optimized price points based on volume-weighted inelasticity.
+    * **$.50 Value Bucket Strategy**: $0.50 decreases for underperforming items to stimulate demand.
+    * **Left-Digit Anchor Preservation**: prevents price increases from rolling over the dollar threshold.
     """)
 
 with doc_col2:
     st.header("About the Developer")
     st.write(f"**Aydan P. Celinski** *University of Colorado Boulder*")
     st.write(f"*Third Year Economics Student | Business & Spanish Minors*")
-    st.write("""
-    I am a data-focused analyst passionate about using Python and Machine Learning to solve real-world 
-    financial problems.
-    """)
-    st.write("* **Technical Skills**: Python (Pandas, Streamlit), SQL, and API Integration.")
-    st.write("* **Focus**: Price Optimization and Business Automation.")
     st.markdown(f"[LinkedIn Profile](https://www.linkedin.com/in/aydan-celinski-a35738299/)")
