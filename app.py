@@ -4,41 +4,24 @@ import io
 import math
 import openai
 
-# 1. SETUP & STYLE - REFINED TO FIX OVERLAP
+# 1. SETUP & STYLE
 st.set_page_config(page_title="Celinski Coffee Solver", layout="wide")
 
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Quicksand:wght@700&display=swap');
-    
-    /* General Font & Color */
     .stApp { background-color: #D2B48C; }
     html, body, [class*="st-"], div, p, h1, h2, h3, label, span {
         font-family: 'Quicksand', sans-serif !important;
         color: #000000 !important;
         font-weight: 700 !important;
     }
-
-    /* Fixed File Uploader Styling to prevent overlap */
     [data-testid="stFileUploader"] {
         background-color: #E6D5B8 !important; 
         border-radius: 10px;
-        padding: 10px;
+        padding: 15px;
     }
-    
-    /* Ensuring the dropzone text doesn't bunch up */
-    [data-testid="stFileUploadDropzone"] {
-        background-color: #E6D5B8 !important;
-        border: 2px dashed #000000 !important;
-        min-height: 150px;
-    }
-
-    /* Standard Sidebar & Button Styling */
     [data-testid="stSidebar"] { background-color: #E6D5B8 !important; }
-    .stButton>button {
-        background-color: #E6D5B8 !important;
-        border: 2px solid #000000 !important;
-    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -91,28 +74,38 @@ if uploaded_file:
         name_map = {}
         found_types = set()
         
+        # 1. Date Scan
         for c in df.columns:
-            if any(x in c for x in ['date', 'transaction_date', 'sale_date']):
+            if any(x in c for x in ['date', 'transaction_date', 'sale_date', 'detected_date']):
                 temp_date = pd.to_datetime(df[c], errors='coerce')
                 if temp_date.dropna().shape[0] > 0:
                     df['normalized_date'] = temp_date
                     found_types.add('date')
                     break
+
+        # 2. Item Name Scan (Targeting 'coffee_name' specifically from your screenshot)
         for c in df.columns:
-            if 'item' not in found_types and any(x in c for x in ['coffee_name', 'product_detail', 'item_detail', 'description']):
-                name_map[c] = 'item'
-                found_types.add('item')
-                break
+            if 'item' not in found_types:
+                if any(x in c for x in ['coffee_name', 'product_detail', 'item_detail', 'description', 'product']):
+                    name_map[c] = 'item'
+                    found_types.add('item')
+                    break
+        
+        # 3. Price Scan (Targeting 'money' from your screenshot)
         for c in df.columns:
-            if 'price' not in found_types and any(x in c for x in ['money', 'unit_price', 'price']):
-                name_map[c] = 'price'
-                found_types.add('price')
-                break
+            if 'price' not in found_types:
+                if any(x in c for x in ['money', 'unit_price', 'price', 'rate']):
+                    name_map[c] = 'price'
+                    found_types.add('price')
+                    break
+
+        # 4. Quantity Scan
         for c in df.columns:
-            if 'quantity' not in found_types and any(x in c for x in ['qty', 'quantity', 'units', 'sold', 'transaction_qty']):
-                name_map[c] = 'quantity'
-                found_types.add('quantity')
-                break
+            if 'quantity' not in found_types:
+                if any(x in c for x in ['qty', 'quantity', 'units', 'sold']):
+                    name_map[c] = 'quantity'
+                    found_types.add('quantity')
+                    break
 
         if 'quantity' not in found_types: df['quantity'] = 1
         
@@ -126,9 +119,13 @@ if uploaded_file:
                 valid_dates = df['normalized_date'].dropna()
                 days_span = (valid_dates.max() - valid_dates.min()).days
                 months_in_data = max(1.0, days_span / 30.44)
+        else:
+            st.error(f"Incomplete mapping. Could not find 'item' or 'price'. Found: {list(df.columns)}")
+            df = None
+            
     except Exception as e: st.error(f"File Error: {e}")
 
-# 5. DYNAMIC PRICING ENGINE
+# 5. PRICING ENGINE
 if df is not None:
     summary = df.groupby('item').agg({'quantity': 'sum', 'price': 'mean'}).reset_index()
     summary['Monthly Units Sold'] = (summary['quantity'] / months_in_data).round(0).astype(int)
@@ -163,7 +160,8 @@ if df is not None:
     
     st.metric("Total Projected Monthly Gain", f"+${summary['Monthly Impact'].sum():,.2f}")
     
-    styled_df = summary[['Item Name', 'Monthly Units Sold', 'Current Price', 'AI Suggested Price', 'Proj. Monthly Gain', 'Strategy']].style.applymap(
+    # 🩹 FIX: .map() replaces the outdated .applymap() to kill the AttributeError
+    styled_df = summary[['Item Name', 'Monthly Units Sold', 'Current Price', 'AI Suggested Price', 'Proj. Monthly Gain', 'Strategy']].style.map(
         lambda x: 'background-color: #C6F4D6' if x == 'Increase' else ('background-color: #F8D7DA' if x == 'Decrease' else ''), 
         subset=['Strategy']
     )
