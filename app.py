@@ -4,27 +4,41 @@ import io
 import math
 import openai
 
-# 1. SETUP & STYLE
+# 1. SETUP & STYLE - REFINED TO FIX OVERLAP
 st.set_page_config(page_title="Celinski Coffee Solver", layout="wide")
 
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Quicksand:wght@700&display=swap');
+    
+    /* General Font & Color */
     .stApp { background-color: #D2B48C; }
     html, body, [class*="st-"], div, p, h1, h2, h3, label, span {
         font-family: 'Quicksand', sans-serif !important;
         color: #000000 !important;
         font-weight: 700 !important;
     }
-    [data-testid="stFileUploader"], [data-testid="stSidebar"], .stButton>button, 
-    [data-testid="stMetric"], .stTabs, [data-baseweb="tab-panel"], 
-    [data-testid="stHeader"], .stTabs [data-baseweb="tab-list"],
-    [data-testid="stFileUploadDropzone"] {
+
+    /* Fixed File Uploader Styling to prevent overlap */
+    [data-testid="stFileUploader"] {
         background-color: #E6D5B8 !important; 
         border-radius: 10px;
-        color: #000000 !important;
+        padding: 10px;
     }
+    
+    /* Ensuring the dropzone text doesn't bunch up */
+    [data-testid="stFileUploadDropzone"] {
+        background-color: #E6D5B8 !important;
+        border: 2px dashed #000000 !important;
+        min-height: 150px;
+    }
+
+    /* Standard Sidebar & Button Styling */
     [data-testid="stSidebar"] { background-color: #E6D5B8 !important; }
+    .stButton>button {
+        background-color: #E6D5B8 !important;
+        border: 2px solid #000000 !important;
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -180,8 +194,8 @@ with doc_col2:
     st.write(f"*Third Year Economics Student | Business & Spanish Minors*")
     st.write("""
     I am a data-focused analyst passionate about using Python and Machine Learning to solve real-world 
-    financial problems. My background combines economic theory with technical execution, including:
+    financial problems.
     """)
     st.write("* **Technical Skills**: Python (Pandas, Streamlit), SQL, and API Integration.")
-    st.write("* **Focus**: Price Optimization, Market Analysis, and Business Automation.")
+    st.write("* **Focus**: Price Optimization and Business Automation.")
     st.markdown(f"[LinkedIn Profile](https://www.linkedin.com/in/aydan-celinski-a35738299/)")
